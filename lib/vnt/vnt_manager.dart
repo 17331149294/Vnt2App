@@ -195,7 +195,9 @@ class VntBox {
     }, peerClientListFn: (info) {
       // uiCall.send(info);
     }, errorFn: (info) {
-      debugPrint('服务异常 类型 ${info.code.name} ${info.msg ?? ''}');
+      final serverCode =
+          info.serverCode == null ? '' : ' 服务端错误码 ${info.serverCode}';
+      debugPrint('服务异常 类型 ${info.code.name}$serverCode ${info.msg ?? ''}');
       uiCall.send(info);
     }, stopFn: () {
       uiCall.send('stop');
@@ -218,6 +220,50 @@ class VntBox {
 
   NetworkConfig? getNetConfig() {
     return networkConfig;
+  }
+
+  Map<String, dynamic> coreConfig() {
+    return {
+      'tap': vntConfig.tap,
+      'token': vntConfig.token,
+      'device_id': vntConfig.deviceId,
+      'name': vntConfig.name,
+      'server_address_str': vntConfig.serverAddressStr,
+      'name_servers': vntConfig.nameServers,
+      'stun_server': vntConfig.stunServer,
+      'in_ips': vntConfig.inIps
+          .map((value) => {
+                'ip': value.$1,
+                'prefix': value.$2,
+                'gateway': value.$3,
+              })
+          .toList(),
+      'out_ips': vntConfig.outIps
+          .map((value) => {
+                'ip': value.$1,
+                'prefix': value.$2,
+              })
+          .toList(),
+      'password': vntConfig.password,
+      'mtu': vntConfig.mtu,
+      'ip': vntConfig.ip,
+      'no_proxy': vntConfig.noProxy,
+      'server_encrypt': vntConfig.serverEncrypt,
+      'cipher_model': vntConfig.cipherModel,
+      'finger': vntConfig.finger,
+      'punch_model': vntConfig.punchModel,
+      'ports': vntConfig.ports?.toList(),
+      'first_latency': vntConfig.firstLatency,
+      'device_name': vntConfig.deviceName,
+      'use_channel_type': vntConfig.useChannelType,
+      'packet_loss_rate': vntConfig.packetLossRate,
+      'packet_delay': vntConfig.packetDelay,
+      'port_mapping_list': vntConfig.portMappingList,
+      'compressor': vntConfig.compressor,
+      'allow_wire_guard': vntConfig.allowWireGuard,
+      'local_dev': vntConfig.localDev,
+      'disable_relay': vntConfig.disableRelay,
+    };
   }
 
   Map<String, dynamic> currentDevice() {
@@ -490,6 +536,7 @@ class VntAppCall {
       'virtualIp': deviceConfig.virtualIp,
       'virtualNetmask': deviceConfig.virtualNetmask,
       'virtualGateway': deviceConfig.virtualGateway,
+      'virtualNetwork': deviceConfig.virtualNetwork,
       'mtu': mtu,
       'externalRoute': deviceConfig.externalRoute.map((v) {
         return {

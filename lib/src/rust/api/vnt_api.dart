@@ -207,15 +207,17 @@ class RustDeviceInfo {
 
 class RustErrorInfo {
   final RustErrorType code;
+  final int? serverCode;
   final String? msg;
 
   const RustErrorInfo({
     required this.code,
+    this.serverCode,
     this.msg,
   });
 
   @override
-  int get hashCode => code.hashCode ^ msg.hashCode;
+  int get hashCode => code.hashCode ^ serverCode.hashCode ^ msg.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -223,6 +225,7 @@ class RustErrorInfo {
       other is RustErrorInfo &&
           runtimeType == other.runtimeType &&
           code == other.code &&
+          serverCode == other.serverCode &&
           msg == other.msg;
 }
 
@@ -234,6 +237,7 @@ enum RustErrorType {
   invalidIp,
   localIpExists,
   failedToCreateDevice,
+  networkError,
   warn,
   unknown,
   ;

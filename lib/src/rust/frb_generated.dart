@@ -1417,11 +1417,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RustErrorInfo dco_decode_rust_error_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return RustErrorInfo(
       code: dco_decode_rust_error_type(arr[0]),
-      msg: dco_decode_opt_String(arr[1]),
+      serverCode: dco_decode_opt_box_autoadd_u_32(arr[1]),
+      msg: dco_decode_opt_String(arr[2]),
     );
   }
 
@@ -1988,8 +1989,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RustErrorInfo sse_decode_rust_error_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_code = sse_decode_rust_error_type(deserializer);
+    var var_serverCode = sse_decode_opt_box_autoadd_u_32(deserializer);
     var var_msg = sse_decode_opt_String(deserializer);
-    return RustErrorInfo(code: var_code, msg: var_msg);
+    return RustErrorInfo(
+        code: var_code, serverCode: var_serverCode, msg: var_msg);
   }
 
   @protected
@@ -2616,6 +2619,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       RustErrorInfo self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_rust_error_type(self.code, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.serverCode, serializer);
     sse_encode_opt_String(self.msg, serializer);
   }
 

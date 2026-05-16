@@ -152,7 +152,7 @@ class SystemTrayManager {
       return;
     }
 
-    String tooltip = "VNT - Virtual Network Tool";
+    String tooltip = "VNT2 APP - Virtual Network Tool";
 
     // 使用乐观状态或实际状态
     final hasConnection = optimisticState ?? vntManager.hasConnection();
@@ -163,7 +163,7 @@ class SystemTrayManager {
       if (vntBox != null) {
         final config = vntBox.getNetConfig();
         if (config != null) {
-          tooltip = "VNT - ${config.configName} 已连接";
+          tooltip = "VNT2 - ${config.configName} 已连接";
         }
       }
     }

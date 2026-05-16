@@ -27,36 +27,24 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         return version.length > 64 ? version.substring(0, 64) : version;
       }());
   final _virtualIPv4Controller = TextEditingController();
-  final _localDevController = TextEditingController();
-  final _serverAddressController = TextEditingController();
+  final _serverAddressControllers = <TextEditingController>[];
+  final _serverProtocolSelections = <String>[];
   final _stunServers = <TextEditingController>[];
   final _inIps = <TextEditingController>[];
   final _outIps = <TextEditingController>[];
   final _portMappings = <TextEditingController>[];
   final _groupPasswordController = TextEditingController();
-  final _dnsControllers = <TextEditingController>[];
   final _deviceIDController = TextEditingController(); // 不可编辑
   final _virtualNetworkCardNameController = TextEditingController();
   final _mtuController = TextEditingController();
-  final _portGroupControllers = <TextEditingController>[];
-  final _simulatedPacketLossRateController = TextEditingController();
-  final _simulatedLatencyController = TextEditingController();
 
-  String _isServerEncrypted = 'CLOSE';
   bool _isPasswordVisible = false;
   bool _isTokenVisible = false;
   String _communicationMethod = 'QUIC';
-  String _dataFingerprintVerification = 'CLOSE';
-  String _encryptionAlgorithm = 'xor';
-  String _routingMode = 'P2P';
   String _builtInIpProxy = 'OPEN';
   bool _isMoreParametersVisible = false;
-  bool _ipv4Selected = true;
-  bool _ipv6Selected = true;
   bool _relaySelected = true;
   bool _p2pSelected = true;
-  String _allowWg = 'FALSE';
-  bool _disableRelay = false;
 
   String _compressionMethod = 'none'; // 默认不压缩
   int _compressionLevel = 3; // 默认压缩级别
@@ -81,14 +69,11 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     if (_outIps.isEmpty) {
       _outIps.add(TextEditingController());
     }
+    if (_serverAddressControllers.isEmpty) {
+      _addServerAddressController();
+    }
     if (_portMappings.isEmpty) {
       _portMappings.add(TextEditingController());
-    }
-    if (_dnsControllers.isEmpty) {
-      _dnsControllers.add(TextEditingController());
-    }
-    if (_portGroupControllers.isEmpty) {
-      _portGroupControllers.add(TextEditingController());
     }
   }
 
@@ -98,9 +83,11 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     _stunServers.add(TextEditingController(text: "stun.hitv.com"));
     _stunServers.add(TextEditingController(text: "stun.cdnbye.com"));
     _mtuController.text = "1410";
-    _serverAddressController.text = "quic://115.231.35.105:2225";
-    _simulatedPacketLossRateController.text = "0";
-    _simulatedLatencyController.text = "0";
+    _addServerAddressController(
+      text: "47.107.166.63:29872",
+      protocol: 'TCP',
+      updateState: false,
+    );
   }
 
   void _loadConfig(NetworkConfig config) {
@@ -108,7 +95,13 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     _groupNumberController.text = config.token;
     _deviceNameController.text = config.deviceName;
     _virtualIPv4Controller.text = config.virtualIPv4;
-    _serverAddressController.text = config.serverAddress;
+    for (final serverAddress in config.effectiveServerList) {
+      _addServerAddressController(
+        text: stripScheme(serverAddress),
+        protocol: normalizeCommunicationMethod(config.protocol, serverAddress),
+        updateState: false,
+      );
+    }
     for (String stunServer in config.stunServers) {
       _stunServers.add(TextEditingController(text: stunServer));
     }
@@ -122,27 +115,15 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
       _portMappings.add(TextEditingController(text: portMapping));
     }
     _groupPasswordController.text = config.groupPassword;
-    _isServerEncrypted = config.isServerEncrypted ? 'OPEN' : 'CLOSE';
-    _communicationMethod =
-        normalizeCommunicationMethod(config.protocol, config.serverAddress);
-    _dataFingerprintVerification =
-        config.dataFingerprintVerification ? 'OPEN' : 'CLOSE';
-    _encryptionAlgorithm = config.encryptionAlgorithm;
+    _communicationMethod = normalizeCommunicationMethod(
+      config.protocol,
+      config.effectiveServerList.isNotEmpty
+          ? config.effectiveServerList.first
+          : config.serverAddress,
+    );
     _deviceIDController.text = config.deviceID;
     _virtualNetworkCardNameController.text = config.virtualNetworkCardName;
     _mtuController.text = config.mtu.toString();
-    for (int portGroup in config.ports) {
-      _portGroupControllers
-          .add(TextEditingController(text: portGroup.toString()));
-    }
-    for (String dns in config.dns) {
-      _dnsControllers.add(TextEditingController(text: dns));
-    }
-    _simulatedPacketLossRateController.text =
-        config.simulatedPacketLossRate.toString();
-    _simulatedLatencyController.text = config.simulatedLatency.toString();
-    _ipv4Selected = config.punchModel == 'ipv4' || config.punchModel == 'all';
-    _ipv6Selected = config.punchModel == 'ipv6' || config.punchModel == 'all';
     _relaySelected =
         config.useChannelType == 'relay' || config.useChannelType == 'all';
     _p2pSelected =
@@ -156,11 +137,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         _compressionLevel = int.tryParse(arr[1]) ?? 3;
       }
     }
-    _allowWg = config.allowWg ? 'FALSE' : 'TRUE';
-    _localDevController.text = config.localDev;
-    _disableRelay = config.disableRelay;
     setState(() {
-      _routingMode = config.firstLatency ? 'LOW_LATENCY' : 'P2P';
       _builtInIpProxy = config.noInIpProxy ? 'CLOSE' : 'OPEN';
     });
   }
@@ -183,13 +160,26 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
           name = groupNumber;
         }
       }
+      final serverList = <String>[];
+      for (var i = 0; i < _serverAddressControllers.length; i++) {
+        final body = _serverAddressControllers[i].text.trim();
+        if (body.isEmpty) {
+          continue;
+        }
+        serverList.add(_applyServerScheme(body, _serverProtocolAt(i)));
+      }
+      if (serverList.isEmpty) {
+        showTopToast(context, '请至少填写一个服务器地址', isSuccess: false);
+        return;
+      }
       NetworkConfig config = NetworkConfig(
         itemKey: widget.config?.itemKey ?? DateTime.now().millisecondsSinceEpoch.toString(),
         configName: name,
         token: _groupNumberController.text,
         deviceName: _deviceNameController.text,
         virtualIPv4: _virtualIPv4Controller.text,
-        serverAddress: _serverAddressController.text,
+        serverAddress: serverList.isNotEmpty ? serverList.first : '',
+        serverList: serverList,
         stunServers: _stunServers
             .map((controller) => controller.text)
             .where((text) => text.isNotEmpty)
@@ -207,40 +197,30 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
             .where((text) => text.isNotEmpty)
             .toList(),
         groupPassword: _groupPasswordController.text,
-        isServerEncrypted: _isServerEncrypted == 'OPEN',
-        protocol: _communicationMethod,
-        dataFingerprintVerification: _dataFingerprintVerification == 'OPEN',
-        encryptionAlgorithm: _encryptionAlgorithm,
+        isServerEncrypted: false,
+        protocol:
+            serverList.isNotEmpty ? _serverProtocolAt(0) : _communicationMethod,
+        dataFingerprintVerification: false,
+        encryptionAlgorithm: 'xor',
         deviceID: _deviceIDController.text,
         virtualNetworkCardName: _virtualNetworkCardNameController.text,
         mtu: int.tryParse(_mtuController.text) ?? 1410,
-        ports: _portGroupControllers
-            .map((controller) => controller.text)
-            .where((text) => text.isNotEmpty)
-            .map((text) => int.tryParse(text) ?? 0)
-            .toList(),
-        firstLatency: _routingMode == 'LOW_LATENCY',
+        ports: const [],
+        firstLatency: false,
         noInIpProxy: _builtInIpProxy == 'CLOSE',
-        dns: _dnsControllers
-            .map((controller) => controller.text)
-            .where((text) => text.isNotEmpty)
-            .toList(),
-        simulatedPacketLossRate:
-            double.tryParse(_simulatedPacketLossRateController.text) ?? 0,
-        simulatedLatency: int.tryParse(_simulatedLatencyController.text) ?? 0,
-        punchModel: (_ipv4Selected && _ipv6Selected) ||
-                (!_ipv4Selected && !_ipv6Selected)
-            ? 'all'
-            : (_ipv4Selected ? 'ipv4' : 'ipv6'),
+        dns: const [],
+        simulatedPacketLossRate: 0,
+        simulatedLatency: 0,
+        punchModel: 'all',
         useChannelType: (_p2pSelected && _relaySelected) ||
                 (!_p2pSelected && !_relaySelected)
             ? 'all'
             : (_p2pSelected ? 'p2p' : 'relay'),
         compressor:
             '$_compressionMethod${_compressionMethod == 'zstd' ? ',$_compressionLevel' : ''}',
-        allowWg: _allowWg == 'FALSE' ? false : true,
-        localDev: _localDevController.text,
-        disableRelay: _disableRelay,
+        allowWg: false,
+        localDev: '',
+        disableRelay: false,
       );
       Navigator.pop(context, config);
     } else {
@@ -260,6 +240,42 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         controllers.removeAt(index);
       });
     }
+  }
+
+  String _serverProtocolAt(int index) {
+    if (index < _serverProtocolSelections.length) {
+      return _serverProtocolSelections[index];
+    }
+    return _communicationMethod;
+  }
+
+  void _addServerAddressController({
+    String text = '',
+    String protocol = 'TCP',
+    bool updateState = true,
+  }) {
+    void add() {
+      _serverAddressControllers.add(TextEditingController(text: text));
+      _serverProtocolSelections.add(protocol);
+    }
+
+    if (updateState) {
+      setState(add);
+    } else {
+      add();
+    }
+  }
+
+  void _removeServerAddressController(int index) {
+    if (_serverAddressControllers.length <= 1) {
+      return;
+    }
+    setState(() {
+      _serverAddressControllers.removeAt(index);
+      if (index < _serverProtocolSelections.length) {
+        _serverProtocolSelections.removeAt(index);
+      }
+    });
   }
 
   @override
@@ -391,93 +407,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                   },
                 ),
                 const SizedBox(height: 20),
-                CustomTooltipTextField(
-                  controller: _serverAddressController,
-                  labelText: '服务器地址',
-                  tooltipMessage:
-                      '(VNTS 2.0 地址，支持 quic://、tcp://、wss://、dynamic://。兼容旧 udp:// 输入并会自动按 QUIC 处理)',
-                  maxLength: 64,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return '地址不能为空';
-                    }
-                    value = value.toLowerCase();
-                    var last = stripPrefix(value, 'quic://');
-                    if (last != null) {
-                      _communicationMethod = 'QUIC';
-                    } else {
-                      last = stripPrefix(value, 'udp://');
-                      if (last != null) {
-                        _communicationMethod = 'QUIC';
-                      } else {
-                        last = stripPrefix(value, 'tcp://');
-                        if (last != null) {
-                          _communicationMethod = 'TCP';
-                        } else {
-                          last = stripPrefix(value, 'wss://');
-                          if (last != null) {
-                            _communicationMethod = 'WSS';
-                          } else {
-                            last = stripPrefix(value, 'ws://');
-                            if (last != null) {
-                              _communicationMethod = 'WSS';
-                            } else {
-                              last = stripPrefix(value, 'dynamic://');
-                              if (last != null) {
-                                _communicationMethod = 'DYNAMIC';
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    if (last != null) {
-                      value = last;
-                    }
-                    final txtRegex = RegExp(r'^txt:');
-
-                    if (txtRegex.hasMatch(value)) {
-                      if (_communicationMethod != 'QUIC' &&
-                          _communicationMethod != 'TCP' &&
-                          _communicationMethod != 'DYNAMIC') {
-                        return '只有QUIC、TCP或DYNAMIC模式支持txt解析';
-                      }
-                      final txtDomainRegex =
-                          RegExp(r'^txt:[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
-                      if (txtDomainRegex.hasMatch(value)) {
-                        return null;
-                      }
-                      return '域名格式错误';
-                    } 
-                    return null;
-                  },
-                ),
-                _buildRadioGroup(
-                  '连接服务器协议',
-                  [
-                    ('QUIC', 'QUIC'),
-                    ('TCP', 'TCP'),
-                    ('WSS', 'WSS'),
-                    ('DYNAMIC', 'DYNAMIC')
-                  ],
-                  _communicationMethod,
-                  (value) {
-                    var text = stripScheme(_serverAddressController.text);
-                    if (value == 'QUIC') {
-                      text = "quic://$text";
-                    } else if (value == 'TCP') {
-                      text = "tcp://$text";
-                    } else if (value == 'WSS') {
-                      text = "wss://$text";
-                    } else if (value == 'DYNAMIC') {
-                      text = "dynamic://$text";
-                    }
-                    _serverAddressController.text = text;
-                    setState(() {
-                      _communicationMethod = value!;
-                    });
-                  },
-                ),
+                _buildServerAddressFields(),
                 const SizedBox(height: 20),
                 _buildDropdownField(
                   '压缩',
@@ -500,17 +430,6 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                       });
                     },
                   ),
-                _buildRadioGroup(
-                  '允许WireGuard客户端访问',
-                  [('允许', 'TRUE'), ('不允许', 'FALSE')],
-                  _allowWg,
-                  (value) {
-                    setState(() {
-                      _allowWg = value!;
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
                 _buildSectionTitle('子网代理&端口映射'),
                 _buildDynamicTooltipFields(
                   'in-ip 对端路由',
@@ -573,44 +492,6 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                     },
                   ),
                 ),
-                _buildDropdownField(
-                  '加密算法',
-                  [
-                    'xor',
-                    'chacha20_poly1305',
-                    'chacha20',
-                    'aes_ecb',
-                    'aes_cbc',
-                    'sm4_cbc',
-                    'aes_gcm'
-                  ],
-                  _encryptionAlgorithm,
-                  (value) {
-                    setState(() {
-                      _encryptionAlgorithm = value.toString();
-                    });
-                  },
-                ),
-                _buildRadioGroup(
-                  '服务端加密',
-                  [('开启', 'OPEN'), ('关闭', 'CLOSE')],
-                  _isServerEncrypted,
-                  (value) {
-                    setState(() {
-                      _isServerEncrypted = value!;
-                    });
-                  },
-                ),
-                _buildRadioGroup(
-                  '数据指纹校验',
-                  [('开启', 'OPEN'), ('关闭', 'CLOSE')],
-                  _dataFingerprintVerification,
-                  (value) {
-                    setState(() {
-                      _dataFingerprintVerification = value!;
-                    });
-                  },
-                ),
                 const SizedBox(height: 20),
                 _buildSectionTitle('更多参数'),
                 Visibility(
@@ -626,42 +507,12 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                         false,
                       ),
                       const SizedBox(height: 16),
-                      CustomTooltipTextField(
-                        controller: _localDevController,
-                        labelText: '本地物理网卡',
-                        tooltipMessage: '指定用于组网通信的物理网卡（留空则由系统自动路由）\n\n支持格式：\n• Windows: 友好名称（如"以太网"、"WLAN"）、索引号\n• Linux: 网卡名（如 eth0、wlan0）\n• macOS: 网卡名（如 en0、en1）\n• Android: 网卡名（如 wlan0、rmnet_data0）\n\n建议：\n• 一般情况留空即可\n• 多网卡环境或需要 IP 代理和出口节点功能时才需要指定',
-                        maxLength: 50,
-                        validator: null,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Checkbox(
-                            value: _disableRelay,
-                            onChanged: (value) {
-                              setState(() {
-                                _disableRelay = value ?? false;
-                              });
-                            },
-                          ),
-                          const Text('禁用客户端中继'),
-                          const SizedBox(width: 8),
-                          Tooltip(
-                            message: '禁用后此客户端将不再为其他客户端提供中继转发功能',
-                            child: Icon(
-                              Icons.info_outline,
-                              size: 16,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
                       _buildTextFormField(
                         _virtualNetworkCardNameController,
                         '虚拟网卡名称',
                         10,
                       ),
+                      const SizedBox(height: 16),
                       _buildTextFormField(
                         _mtuController,
                         '虚拟网卡mtu',
@@ -680,23 +531,6 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                       ),
                       const SizedBox(height: 16),
                       _buildFormFieldWithValidation(
-                        '打洞模式',
-                        "使用Ipv4",
-                        "使用Ipv6",
-                        _ipv4Selected,
-                        _ipv6Selected,
-                        (value) {
-                          setState(() {
-                            _ipv4Selected = value!;
-                          });
-                        },
-                        (value) {
-                          setState(() {
-                            _ipv6Selected = value!;
-                          });
-                        },
-                      ),
-                      _buildFormFieldWithValidation(
                         '传输模式',
                         "仅中继",
                         "仅直连",
@@ -714,33 +548,6 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      _buildDynamicFields(
-                        '打洞端口',
-                        _portGroupControllers,
-                        _addController,
-                        _removeController,
-                        keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return null;
-                          }
-                          final n = int.tryParse(value);
-                          if (n == null || n < 0 || n > 65535) {
-                            return '请输入0到65535之间的数字';
-                          }
-                          return null;
-                        },
-                      ),
-                      _buildRadioGroup(
-                        '路径模式',
-                        [('P2P优先', 'P2P'), ('低延迟优先', 'LOW_LATENCY')],
-                        _routingMode,
-                        (value) {
-                          setState(() {
-                            _routingMode = value!;
-                          });
-                        },
-                      ),
                       _buildRadioGroup(
                         '内置IP代理',
                         [('开启', 'OPEN'), ('关闭', 'CLOSE')],
@@ -750,41 +557,6 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                             _builtInIpProxy = value!;
                           });
                         },
-                      ),
-                      const SizedBox(height: 16),
-                      _buildDynamicFields(
-                        '自定义dns服务器',
-                        _dnsControllers,
-                        _addController,
-                        _removeController,
-                      ),
-                      const SizedBox(height: 16),
-                      _buildTextFormField(
-                        _simulatedPacketLossRateController,
-                        '模拟丢包率',
-                        null,
-                        (value) {
-                          final n = num.tryParse(value ?? '');
-                          if (n != null && (n < 0 || n > 1)) {
-                            return '请输入0到1之间的小数';
-                          }
-                          return null;
-                        },
-                        TextInputType.numberWithOptions(decimal: true),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildTextFormField(
-                        _simulatedLatencyController,
-                        '模拟延迟',
-                        null,
-                        (value) {
-                          final n = num.tryParse(value ?? '');
-                          if (n != null && n < 0) {
-                            return '请输入有效的整数';
-                          }
-                          return null;
-                        },
-                        TextInputType.number,
                       ),
                       const SizedBox(height: 16),
                       _buildDynamicFields(
@@ -1032,6 +804,83 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     );
   }
 
+  Widget _buildServerAddressFields() {
+    const protocols = ['TCP', 'QUIC', 'WSS', 'DYNAMIC'];
+    return Column(
+      children: [
+        ..._serverAddressControllers.asMap().entries.map((entry) {
+          final index = entry.key;
+          final controller = entry.value;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 116,
+                child: DropdownButtonFormField<String>(
+                  value: _serverProtocolAt(index),
+                  decoration: const InputDecoration(labelText: '协议'),
+                  isExpanded: true,
+                  items: protocols.map((protocol) {
+                    return DropdownMenuItem(
+                      value: protocol,
+                      child: Text(protocol.toLowerCase()),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      while (_serverProtocolSelections.length <= index) {
+                        _serverProtocolSelections.add(_communicationMethod);
+                      }
+                      _serverProtocolSelections[index] = value;
+                      if (index == 0) {
+                        _communicationMethod = value;
+                      }
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: CustomTooltipTextField(
+                  controller: controller,
+                  labelText: '服务器地址${index == 0 ? '' : ' ---$index'}',
+                  tooltipMessage:
+                      '支持多个 VNTS 2.0 地址；协议从左侧选择，地址填写 host:port 或 txt:domain',
+                  maxLength: 96,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return null;
+                    }
+                    final error = _validateServerAddress(value);
+                    return error == null
+                        ? null
+                        : FormatException(error).toString();
+                  },
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.remove_circle),
+                onPressed: () => _removeServerAddressController(index),
+              ),
+            ],
+          );
+        }).toList(),
+        Row(
+          children: [
+            Expanded(child: Container()),
+            IconButton(
+              icon: const Icon(Icons.add_circle),
+              onPressed: () => _addServerAddressController(),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildDropdownField(
     String labelText,
     List<String> items,
@@ -1170,6 +1019,45 @@ String? stripPrefix(String input, String prefix) {
   } else {
     return null;
   }
+}
+
+String? _validateServerAddress(String input) {
+  var value = input.trim().toLowerCase();
+  var body = stripPrefix(value, 'quic://') ??
+      stripPrefix(value, 'udp://') ??
+      stripPrefix(value, 'tcp://') ??
+      stripPrefix(value, 'wss://') ??
+      stripPrefix(value, 'ws://') ??
+      stripPrefix(value, 'dynamic://');
+  body ??= value;
+
+  if (body.startsWith('txt:')) {
+    final txtDomainRegex = RegExp(r'^txt:[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+    return txtDomainRegex.hasMatch(body) ? null : 'TXT 域名格式错误';
+  }
+  if (body.isEmpty) {
+    return '服务器地址不能为空';
+  }
+  return null;
+}
+
+String _applyServerScheme(String input, String protocol) {
+  var scheme = 'quic://';
+  if (protocol == 'TCP') {
+    scheme = 'tcp://';
+  } else if (protocol == 'WSS') {
+    scheme = 'wss://';
+  } else if (protocol == 'DYNAMIC') {
+    scheme = 'dynamic://';
+  }
+  var body = stripScheme(input.trim());
+  if (body.isEmpty) {
+    return '';
+  }
+  if (protocol == 'DYNAMIC' && body.toLowerCase().startsWith('txt:')) {
+    body = body.substring(4);
+  }
+  return '$scheme$body';
 }
 
 String stripScheme(String input) {

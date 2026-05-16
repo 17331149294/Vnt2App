@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:audio_io/audio_io.dart';
-import 'package:audioplayers/audioplayers.dart' as ap;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:record/record.dart';
@@ -484,9 +484,9 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
   final Downsample48kTo16kPcm16 _downsampler = Downsample48kTo16kPcm16();
   final Upsample16kPcm16To48kFloat64 _upsampler =
       Upsample16kPcm16To48kFloat64();
-  final ap.AudioPlayer _voicePlayer = ap.AudioPlayer()
-    ..setReleaseMode(ap.ReleaseMode.stop);
-  StreamSubscription<void>? _voiceCompletedSubscription;
+  final Upsample16kPcm16To48kFloat64 _voiceUpsampler =
+      Upsample16kPcm16To48kFloat64();
+  Future<void>? _voicePlaybackTask;
   StreamSubscription<List<double>>? _micSubscription;
 
   bool _initialized = false;
@@ -503,7 +503,7 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
   int _receivedPackets = 0;
 
   @override
-  String get name => 'windows_audio_io_record_audioplayers';
+  String get name => 'windows_audio_io_record';
 
   @override
   ChatAudioCapabilities get capabilities => const ChatAudioCapabilities(
@@ -545,9 +545,6 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
     if (_initialized) {
       return;
     }
-    _voiceCompletedSubscription = _voicePlayer.onPlayerComplete.listen((_) {
-      _isVoicePlaying = false;
-    });
     _initialized = true;
     await _logger.info('audio', '音频服务初始化完成', extra: {
       'backend': name,
@@ -632,8 +629,22 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
       if (_isVoicePlaying) {
         await stopVoicePlayback();
       }
-      await _voicePlayer.play(ap.DeviceFileSource(filePath));
+      final wav = _decodePcm16Wav(await File(filePath).readAsBytes());
+      await _ensureLiveEngineStarted();
       _isVoicePlaying = true;
+      _voicePlaybackTask = _playVoiceWav(wav)
+          .catchError((Object error) async {
+            _lastError = error.toString();
+            await _logger.error('audio', '播放语音消息失败', extra: {
+              'backend': name,
+              'filePath': filePath,
+              'error': error.toString(),
+            });
+          })
+          .whenComplete(() async {
+            _isVoicePlaying = false;
+            await _stopLiveEngineIfIdle();
+          });
       _lastError = null;
       await _logger.info('audio', '播放语音消息', extra: {
         'backend': name,
@@ -653,11 +664,13 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
     if (!_isVoicePlaying) {
       return;
     }
-    await _voicePlayer.stop();
     _isVoicePlaying = false;
+    await _voicePlaybackTask;
+    _voicePlaybackTask = null;
     await _logger.info('audio', '停止语音消息播放', extra: {
       'backend': name,
     });
+    await _stopLiveEngineIfIdle();
   }
 
   @override
@@ -797,10 +810,115 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
     await stopMicrophoneStream();
     await stopIncomingStreamPlayback();
     await _micSubscription?.cancel();
-    await _voiceCompletedSubscription?.cancel();
     await _recorder.dispose();
-    await _voicePlayer.dispose();
     _initialized = false;
+  }
+
+  Future<void> _playVoiceWav(_Pcm16Wav wav) async {
+    _voiceUpsampler.reset();
+    const chunkInputSamples = 320;
+    for (var offset = 0; offset < wav.samples.length && _isVoicePlaying;) {
+      final end = (offset + chunkInputSamples).clamp(0, wav.samples.length);
+      final chunk = Int16List.sublistView(wav.samples, offset, end);
+      final output = _voiceSamplesToOutput(chunk, wav.sampleRate);
+      if (output.isNotEmpty && _isVoicePlaying) {
+        _audioIo.output.add(output);
+      }
+      offset = end;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
+  List<double> _voiceSamplesToOutput(Int16List samples, int sampleRate) {
+    if (sampleRate == ChatAudioService.sampleRate) {
+      final pcmBytes = Uint8List.view(
+        samples.buffer,
+        samples.offsetInBytes,
+        samples.lengthInBytes,
+      );
+      return _voiceUpsampler.process(pcmBytes);
+    }
+    if (sampleRate == 48000) {
+      return List<double>.generate(
+        samples.length,
+        (index) => (samples[index] / 32768.0).clamp(-1.0, 1.0).toDouble(),
+        growable: false,
+      );
+    }
+    throw ChatAudioException(
+      code: 'UNSUPPORTED_WAV_SAMPLE_RATE',
+      message: 'Unsupported WAV sample rate: $sampleRate',
+      userMessage: '当前语音文件采样率不受支持',
+    );
+  }
+
+  _Pcm16Wav _decodePcm16Wav(Uint8List bytes) {
+    if (bytes.length < 44) {
+      throw const ChatAudioException(
+        code: 'INVALID_WAV',
+        message: 'WAV file is too small',
+        userMessage: '语音文件格式无效',
+      );
+    }
+    final data = ByteData.sublistView(bytes);
+    String tag(int offset, int length) =>
+        String.fromCharCodes(bytes.sublist(offset, offset + length));
+    if (tag(0, 4) != 'RIFF' || tag(8, 4) != 'WAVE') {
+      throw const ChatAudioException(
+        code: 'INVALID_WAV',
+        message: 'Missing RIFF/WAVE header',
+        userMessage: '语音文件格式无效',
+      );
+    }
+
+    var offset = 12;
+    int? audioFormat;
+    int? channels;
+    int? sampleRate;
+    int? bitsPerSample;
+    int? dataOffset;
+    int? dataLength;
+    while (offset + 8 <= bytes.length) {
+      final chunkId = tag(offset, 4);
+      final chunkSize = data.getUint32(offset + 4, Endian.little);
+      final chunkDataOffset = offset + 8;
+      if (chunkDataOffset + chunkSize > bytes.length) {
+        break;
+      }
+      if (chunkId == 'fmt ') {
+        audioFormat = data.getUint16(chunkDataOffset, Endian.little);
+        channels = data.getUint16(chunkDataOffset + 2, Endian.little);
+        sampleRate = data.getUint32(chunkDataOffset + 4, Endian.little);
+        bitsPerSample = data.getUint16(chunkDataOffset + 14, Endian.little);
+      } else if (chunkId == 'data') {
+        dataOffset = chunkDataOffset;
+        dataLength = chunkSize;
+      }
+      offset = chunkDataOffset + chunkSize + (chunkSize.isOdd ? 1 : 0);
+    }
+
+    if (audioFormat != 1 || bitsPerSample != 16 || dataOffset == null) {
+      throw const ChatAudioException(
+        code: 'UNSUPPORTED_WAV',
+        message: 'Only PCM16 WAV files are supported',
+        userMessage: '当前只支持 PCM16 WAV 语音文件',
+      );
+    }
+    final channelCount = channels ?? 1;
+    final frameCount = (dataLength ?? 0) ~/ (2 * channelCount);
+    final samples = Int16List(frameCount);
+    for (var frame = 0; frame < frameCount; frame++) {
+      var mixed = 0;
+      for (var channel = 0; channel < channelCount; channel++) {
+        mixed += data.getInt16(
+          dataOffset + (frame * channelCount + channel) * 2,
+          Endian.little,
+        );
+      }
+      samples[frame] =
+          (mixed / channelCount).round().clamp(-32768, 32767).toInt();
+    }
+    return _Pcm16Wav(samples: samples, sampleRate: sampleRate ?? 16000);
   }
 
   Future<void> _ensureLiveEngineStarted() async {
@@ -823,7 +941,10 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
   }
 
   Future<void> _stopLiveEngineIfIdle() async {
-    if (!_liveEngineStarted || _isIncomingStreamPlaying || _isStreamingMic) {
+    if (!_liveEngineStarted ||
+        _isIncomingStreamPlaying ||
+        _isStreamingMic ||
+        _isVoicePlaying) {
       return;
     }
     await _audioIo.stop();
@@ -882,6 +1003,16 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
       userMessage: '$action失败，请检查音频设备是否正常并建议佩戴耳机后重试',
     );
   }
+}
+
+class _Pcm16Wav {
+  const _Pcm16Wav({
+    required this.samples,
+    required this.sampleRate,
+  });
+
+  final Int16List samples;
+  final int sampleRate;
 }
 
 class _UnsupportedChatAudioBackend implements ChatAudioBackend {

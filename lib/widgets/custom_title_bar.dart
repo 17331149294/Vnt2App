@@ -141,7 +141,7 @@ class _CustomTitleBarState extends State<CustomTitleBar> with WindowListener {
                     const SizedBox(width: 8),
                     // 应用标题
                     Text(
-                      'VNT App',
+                      'VNT2 APP',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,

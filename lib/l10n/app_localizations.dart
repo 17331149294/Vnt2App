@@ -101,7 +101,7 @@ abstract class AppLocalizations {
   /// The application title
   ///
   /// In en, this message translates to:
-  /// **'VNT App'**
+  /// **'VNT2 APP'**
   String get appTitle;
 }
 

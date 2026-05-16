@@ -47,13 +47,15 @@ pub fn init_log_with_path(log_dir: String, config_path: String) -> anyhow::Resul
 
     let log_path = PathBuf::from(&log_dir);
     if !log_path.exists() {
-        std::fs::create_dir_all(&log_path)
-            .context(format!("创建日志目录失败: {}", log_dir))?;
+        std::fs::create_dir_all(&log_path).context(format!("创建日志目录失败: {}", log_dir))?;
     }
 
     let log_file = log_path.join("vnt-core.log");
     let trigger = SizeTrigger::new(10 * 1024 * 1024);
-    let roller_pattern = log_path.join("vnt-core.{}.log").to_string_lossy().to_string();
+    let roller_pattern = log_path
+        .join("vnt-core.{}.log")
+        .to_string_lossy()
+        .to_string();
     let roller = FixedWindowRoller::builder()
         .build(&roller_pattern, 5)
         .context("创建日志滚动器失败")?;
@@ -68,7 +70,11 @@ pub fn init_log_with_path(log_dir: String, config_path: String) -> anyhow::Resul
 
     let config = Config::builder()
         .appender(Appender::builder().build("rolling_file", Box::new(appender)))
-        .build(Root::builder().appender("rolling_file").build(LevelFilter::Info))
+        .build(
+            Root::builder()
+                .appender("rolling_file")
+                .build(LevelFilter::Info),
+        )
         .context("构建日志配置失败")?;
 
     log4rs::init_config(config).context("初始化日志系统失败")?;
@@ -132,7 +138,7 @@ impl VntApi {
         }
 
         let (network_manager, network_addr) =
-            match runtime.block_on(async { start_network(core_config, task_group).await }) {
+            match runtime.block_on(async { start_network(core_config, task_group, &call).await }) {
                 Ok(value) => value,
                 Err(err) => {
                     call.emit_error(error_info_from_error(&err));
@@ -162,7 +168,12 @@ impl VntApi {
         if self.stopped.swap(true, Ordering::SeqCst) {
             return;
         }
-        if let Some(network_manager) = self.network_manager.lock().ok().and_then(|mut guard| guard.take()) {
+        if let Some(network_manager) = self
+            .network_manager
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take())
+        {
             drop(network_manager);
         }
     }
@@ -336,7 +347,9 @@ impl VntApi {
 async fn start_network(
     core_config: CoreConfig,
     task_group: vnt_core::utils::task_control::TaskGroup,
+    call: &VntApiCallback,
 ) -> anyhow::Result<(NetworkManager, NetworkAddr)> {
+    let output_routes = core_config.output.clone();
     let mut network_manager = NetworkManager::create_network(Box::new(core_config), task_group)
         .await
         .context("创建 VNT 2.0 网络实例失败")?;
@@ -347,34 +360,67 @@ async fn start_network(
     let network_addr = match register_response {
         RegisterResponse::Success(network_addr) => network_addr,
         RegisterResponse::Failed(error) => {
-            return Err(anyhow!("注册到 VNTS 2.0 服务端失败: {}", error.message));
+            return Err(anyhow!(
+                "注册到 VNTS 2.0 服务端失败(code={}): {}",
+                error.code,
+                error.message
+            ));
         }
     };
     if !network_manager.is_no_tun() {
-        network_manager
-            .start_tun()
-            .await
-            .context("启动虚拟网卡失败")?;
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let virtual_network = Ipv4Net::new(network_addr.ip, network_addr.prefix_len)
+                .context("解析虚拟网络段失败")?;
+            let external_route = output_routes
+                .iter()
+                .map(|route| {
+                    (
+                        route.network().to_string(),
+                        prefix_to_netmask(route.prefix_len()).to_string(),
+                    )
+                })
+                .collect();
+            let tun_fd = call
+                .generate_tun(RustDeviceConfig {
+                    virtual_ip: network_addr.ip.to_string(),
+                    virtual_netmask: prefix_to_netmask(network_addr.prefix_len).to_string(),
+                    virtual_gateway: network_addr.gateway.to_string(),
+                    virtual_network: virtual_network.network().to_string(),
+                    external_route,
+                })
+                .await;
+            if tun_fd == 0 {
+                return Err(anyhow!("系统 VPN 服务未返回有效 tun fd"));
+            }
+            network_manager
+                .start_tun_fd(Some(tun_fd as i32))
+                .await
+                .context("启动虚拟网卡失败")?;
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        network_manager
-            .set_tun_network_ip(network_addr.ip, network_addr.prefix_len)
-            .await
-            .context("设置虚拟网卡 IP 失败")?;
+        {
+            network_manager
+                .start_tun()
+                .await
+                .context("启动虚拟网卡失败")?;
+            network_manager
+                .set_tun_network_ip(network_addr.ip, network_addr.prefix_len)
+                .await
+                .context("设置虚拟网卡 IP 失败")?;
+        }
     }
     Ok((network_manager, network_addr))
 }
 
 fn convert_to_core_config(vnt_config: &VntConfig) -> anyhow::Result<(CoreConfig, Vec<String>)> {
     let server_addr = parse_server_addresses(&vnt_config.server_address_str)?;
-    let connect_targets: Vec<String> =
-        server_addr.iter().map(|address| address.to_string()).collect();
+    let connect_targets: Vec<String> = server_addr
+        .iter()
+        .map(|address| address.to_string())
+        .collect();
     let bridge_options = decode_bridge_options(&vnt_config.cipher_model)?;
-    let cert_mode = decode_cert_mode(
-        bridge_options
-            .cert_mode
-            .as_deref()
-            .unwrap_or("skip"),
-    )?;
+    let cert_mode = decode_cert_mode(bridge_options.cert_mode.as_deref().unwrap_or("skip"))?;
 
     let input = vnt_config
         .in_ips
@@ -460,7 +506,9 @@ fn convert_to_core_config(vnt_config: &VntConfig) -> anyhow::Result<(CoreConfig,
             output,
             no_nat: vnt_config.no_proxy,
             no_tun: bridge_options.no_tun,
-            mtu: vnt_config.mtu.map(|value| value.min(u16::MAX as u32) as u16),
+            mtu: vnt_config
+                .mtu
+                .map(|value| value.min(u16::MAX as u32) as u16),
             port_mapping,
             allow_port_mapping: bridge_options.allow_mapping,
             udp_stun,
@@ -602,7 +650,13 @@ fn total_traffic(api: &CoreVntApi, upstream: bool) -> u64 {
     }
     api.all_traffic_info()
         .into_iter()
-        .map(|info| if upstream { info.tx_bytes } else { info.rx_bytes })
+        .map(|info| {
+            if upstream {
+                info.tx_bytes
+            } else {
+                info.rx_bytes
+            }
+        })
         .sum()
 }
 
@@ -667,24 +721,60 @@ fn prefix_to_netmask(prefix_len: u8) -> Ipv4Addr {
 
 fn error_info_from_error(error: &anyhow::Error) -> RustErrorInfo {
     let message = format!("{error:#}");
+    let server_code = extract_server_error_code(&message);
     let lowered = message.to_lowercase();
-    let code = if lowered.contains("network_code") || lowered.contains("token") {
+    let code = server_code
+        .and_then(error_type_from_server_code)
+        .unwrap_or_else(|| error_type_from_message(&lowered));
+    RustErrorInfo {
+        code,
+        server_code,
+        msg: Some(message),
+    }
+}
+
+fn extract_server_error_code(message: &str) -> Option<u32> {
+    let start = message.find("(code=")? + "(code=".len();
+    let end = message[start..].find(')')? + start;
+    message[start..end].parse().ok()
+}
+
+fn error_type_from_server_code(code: u32) -> Option<RustErrorType> {
+    match code {
+        1 => Some(RustErrorType::TokenError),
+        2 => Some(RustErrorType::AddressExhausted),
+        3 => Some(RustErrorType::IpAlreadyExists),
+        4 => Some(RustErrorType::InvalidIp),
+        5 => Some(RustErrorType::LocalIpExists),
+        _ => None,
+    }
+}
+
+fn error_type_from_message(lowered: &str) -> RustErrorType {
+    if lowered.contains("network_code") || lowered.contains("token") {
         RustErrorType::TokenError
-    } else if lowered.contains("ip already exists") {
+    } else if lowered.contains("address exhausted") || lowered.contains("地址已耗尽") {
+        RustErrorType::AddressExhausted
+    } else if lowered.contains("ip already exists") || lowered.contains("ip 已存在") {
         RustErrorType::IpAlreadyExists
-    } else if lowered.contains("invalid ip") {
+    } else if lowered.contains("invalid ip") || lowered.contains("无效 ip") {
         RustErrorType::InvalidIp
+    } else if lowered.contains("local ip exists") || lowered.contains("本机 ip") {
+        RustErrorType::LocalIpExists
     } else if lowered.contains("failed to create device") || lowered.contains("启动虚拟网卡失败")
     {
         RustErrorType::FailedToCreateDevice
-    } else if lowered.contains("disconnect") {
+    } else if lowered.contains("failed to create quic endpoint")
+        || lowered.contains("failed to create endpoint")
+        || lowered.contains("quic endpoint")
+        || lowered.contains("getsockopt")
+        || lowered.contains("setsockopt")
+    {
+        RustErrorType::NetworkError
+    } else if lowered.contains("disconnect") || lowered.contains("disconnected") {
         RustErrorType::Disconnect
     } else {
         RustErrorType::Unknown
-    };
-    RustErrorInfo {
-        code,
-        msg: Some(message),
     }
 }
 
@@ -786,6 +876,11 @@ impl VntApiCallback {
             f(info)
         });
     }
+
+    async fn generate_tun(&self, config: RustDeviceConfig) -> u32 {
+        let f = &self.inner.generate_tun_fn;
+        f(config).await
+    }
 }
 
 fn spawn_dart_future<T, F>(factory: F)
@@ -876,6 +971,7 @@ pub struct RustPeerClientInfo {
 #[derive(Debug)]
 pub struct RustErrorInfo {
     pub code: RustErrorType,
+    pub server_code: Option<u32>,
     pub msg: Option<String>,
 }
 
@@ -888,6 +984,7 @@ pub enum RustErrorType {
     InvalidIp,
     LocalIpExists,
     FailedToCreateDevice,
+    NetworkError,
     Warn,
     Unknown,
 }

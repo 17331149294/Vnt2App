@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:screen_retriever/screen_retriever.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:system_tray/system_tray.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:vnt2_app/chat/chat_manager.dart';
@@ -111,13 +110,6 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _writeBootTrace('after ensureInitialized');
 
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    _writeBootTrace('before sqfliteFfiInit');
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-    _writeBootTrace('after sqfliteFfiInit');
-  }
-
   try {
     _writeBootTrace('before copyLogConfig');
     await copyLogConfig();
@@ -218,7 +210,7 @@ Future<void> main() async {
         }
 
         // 设置窗口标题
-        await windowManager.setTitle('VNT App');
+        await windowManager.setTitle('VNT2 APP');
 
         // macOS: 由于以root权限运行，隐藏最小化和最大化按钮,只保留关闭按钮
         // 这是因为macOS安全限制导致这些按钮无法正常工作
@@ -241,7 +233,7 @@ Future<void> main() async {
       );
       final dataPersistence = DataPersistence();
       await windowManager.waitUntilReadyToShow(windowOptions, () async {
-        windowManager.setTitle('VNT App');
+        await windowManager.setTitle('VNT2 APP');
 
         // 只在 Windows 10+ 上使用自定义标题栏，Windows 7 使用系统标题栏
         if (!Platform.isWindows || isWindows10OrGreater()) {
@@ -354,7 +346,7 @@ class _VntAppState extends State<VntApp> {
       setCustomThemeColor: _setCustomThemeColor,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'VNT App',
+        title: 'VNT2 APP',
         // 添加本地化支持
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
@@ -803,8 +795,8 @@ Future<void> initSystemTray() async {
 
   // 初始化系统托盘
   await systemTray.initSystemTray(
-    title: "VNT",
-    toolTip: "VNT - Virtual Network Tool",
+    title: "VNT2",
+    toolTip: "VNT2 APP - Virtual Network Tool",
     iconPath: path,
   );
 

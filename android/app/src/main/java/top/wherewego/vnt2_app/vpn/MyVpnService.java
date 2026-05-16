@@ -91,7 +91,7 @@ public class MyVpnService extends VpnService {
         Builder builder = new Builder();
         String ip = IpUtils.intToIpAddress(config.virtualIp);
         int prefixLength = IpUtils.subnetMaskToPrefixLength(config.virtualNetmask);
-        String ipRoute = IpUtils.intToIpAddress(config.virtualGateway & config.virtualNetmask);
+        String ipRoute = IpUtils.intToIpAddress(config.virtualNetwork);
         builder
                 .allowFamily(OsConstants.AF_INET)
                 .allowFamily(OsConstants.AF_INET6)

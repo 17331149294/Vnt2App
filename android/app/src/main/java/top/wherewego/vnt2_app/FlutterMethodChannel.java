@@ -239,6 +239,7 @@ public class FlutterMethodChannel {
         String virtualIp = (String) arguments.get("virtualIp");
         String virtualNetmask = (String) arguments.get("virtualNetmask");
         String virtualGateway = (String) arguments.get("virtualGateway");
+        String virtualNetwork = (String) arguments.get("virtualNetwork");
         Integer mtu = (Integer) arguments.get("mtu");
 
         List<Map<String, String>> externalRouteList = (List<Map<String, String>>) arguments.get("externalRoute");
@@ -250,7 +251,7 @@ public class FlutterMethodChannel {
                 externalRoute.add(new DeviceConfig.Route(IpUtils.ipToInt(destination), IpUtils.ipToInt(netmask)));
             }
         }
-        return new DeviceConfig(IpUtils.ipToInt(virtualIp), IpUtils.ipToInt(virtualNetmask), IpUtils.ipToInt(virtualGateway), mtu, externalRoute);
+        return new DeviceConfig(IpUtils.ipToInt(virtualIp), IpUtils.ipToInt(virtualNetmask), IpUtils.ipToInt(virtualGateway), IpUtils.ipToInt(virtualNetwork), mtu, externalRoute);
     }
 
     /**

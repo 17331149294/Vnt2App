@@ -1037,6 +1037,9 @@ class _ConfigListPageState extends State<ConfigListPage> {
       case RustErrorType.failedToCreateDevice:
         errorMsg = '[$configName] 虚拟网卡创建失败';
         break;
+      case RustErrorType.networkError:
+        errorMsg = '[$configName] 网络连接初始化失败';
+        break;
       case RustErrorType.warn:
         errorMsg = msg.msg ?? '[$configName] 警告';
         break;

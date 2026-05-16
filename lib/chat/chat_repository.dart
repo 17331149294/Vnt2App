@@ -16,6 +16,7 @@ class ChatRepository {
 
   static const Duration defaultRetention = Duration(days: 30);
   static const Uuid _uuid = Uuid();
+  static bool _ffiInitialized = false;
 
   Database? _database;
   Directory? _baseDir;
@@ -25,6 +26,7 @@ class ChatRepository {
     if (_database != null) {
       return;
     }
+    _ensureDatabaseFactoryInitialized();
     _baseDir = await _resolveBaseDirectory();
     final dbPath = path.join(_baseDir!.path, 'chat.db');
     _dbPath = dbPath;
@@ -35,6 +37,17 @@ class ChatRepository {
         await _createSchema(db);
       },
     );
+  }
+
+  void _ensureDatabaseFactoryInitialized() {
+    if (_ffiInitialized) {
+      return;
+    }
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
+    _ffiInitialized = true;
   }
 
   Future<Database> get _db async {

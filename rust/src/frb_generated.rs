@@ -937,7 +937,8 @@ fn wire__crate__api__vnt_api__init_log_with_path_impl(
             deserializer.end();
             transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                 (move || {
-                    let output_ok = crate::api::vnt_api::init_log_with_path(api_log_dir, api_config_path)?;
+                    let output_ok =
+                        crate::api::vnt_api::init_log_with_path(api_log_dir, api_config_path)?;
                     Ok(output_ok)
                 })(),
             )
@@ -1676,9 +1677,11 @@ impl SseDecode for crate::api::vnt_api::RustErrorInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_code = <crate::api::vnt_api::RustErrorType>::sse_decode(deserializer);
+        let mut var_serverCode = <Option<u32>>::sse_decode(deserializer);
         let mut var_msg = <Option<String>>::sse_decode(deserializer);
         return crate::api::vnt_api::RustErrorInfo {
             code: var_code,
+            server_code: var_serverCode,
             msg: var_msg,
         };
     }
@@ -1696,8 +1699,9 @@ impl SseDecode for crate::api::vnt_api::RustErrorType {
             4 => crate::api::vnt_api::RustErrorType::InvalidIp,
             5 => crate::api::vnt_api::RustErrorType::LocalIpExists,
             6 => crate::api::vnt_api::RustErrorType::FailedToCreateDevice,
-            7 => crate::api::vnt_api::RustErrorType::Warn,
-            8 => crate::api::vnt_api::RustErrorType::Unknown,
+            7 => crate::api::vnt_api::RustErrorType::NetworkError,
+            8 => crate::api::vnt_api::RustErrorType::Warn,
+            9 => crate::api::vnt_api::RustErrorType::Unknown,
             _ => unreachable!("Invalid variant for RustErrorType: {}", inner),
         };
     }
@@ -2057,6 +2061,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::vnt_api::RustErrorInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.code.into_into_dart().into_dart(),
+            self.server_code.into_into_dart().into_dart(),
             self.msg.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -2084,8 +2089,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::vnt_api::RustErrorType {
             Self::InvalidIp => 4.into_dart(),
             Self::LocalIpExists => 5.into_dart(),
             Self::FailedToCreateDevice => 6.into_dart(),
-            Self::Warn => 7.into_dart(),
-            Self::Unknown => 8.into_dart(),
+            Self::NetworkError => 7.into_dart(),
+            Self::Warn => 8.into_dart(),
+            Self::Unknown => 9.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -2600,6 +2606,7 @@ impl SseEncode for crate::api::vnt_api::RustErrorInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <crate::api::vnt_api::RustErrorType>::sse_encode(self.code, serializer);
+        <Option<u32>>::sse_encode(self.server_code, serializer);
         <Option<String>>::sse_encode(self.msg, serializer);
     }
 }
@@ -2616,8 +2623,9 @@ impl SseEncode for crate::api::vnt_api::RustErrorType {
                 crate::api::vnt_api::RustErrorType::InvalidIp => 4,
                 crate::api::vnt_api::RustErrorType::LocalIpExists => 5,
                 crate::api::vnt_api::RustErrorType::FailedToCreateDevice => 6,
-                crate::api::vnt_api::RustErrorType::Warn => 7,
-                crate::api::vnt_api::RustErrorType::Unknown => 8,
+                crate::api::vnt_api::RustErrorType::NetworkError => 7,
+                crate::api::vnt_api::RustErrorType::Warn => 8,
+                crate::api::vnt_api::RustErrorType::Unknown => 9,
                 _ => {
                     unimplemented!("");
                 }

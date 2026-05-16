@@ -12,6 +12,7 @@ import 'package:fl_chart/fl_chart.dart';
 
 /// 仪表盘页面
 class DashboardPage extends StatefulWidget {
+  final NetworkConfig? selectedConfig;
   final VoidCallback? onNavigateToConfig;
   final VoidCallback? onNavigateToSettings;
   final VoidCallback? onDisconnect;
@@ -19,6 +20,7 @@ class DashboardPage extends StatefulWidget {
 
   const DashboardPage({
     super.key,
+    this.selectedConfig,
     this.onNavigateToConfig,
     this.onNavigateToSettings,
     this.onDisconnect,
@@ -129,6 +131,18 @@ class _DashboardPageState extends State<DashboardPage> {
     return status.trim().toLowerCase() == 'online';
   }
 
+  Iterable<MapEntry<String, VntBox>> _activeVntEntries() {
+    final scopedKey = widget.selectedConfig?.itemKey.trim() ?? '';
+    if (scopedKey.isNotEmpty) {
+      final scopedBox = vntManager.map[scopedKey];
+      if (scopedBox != null && !scopedBox.isClosed()) {
+        return [MapEntry(scopedKey, scopedBox)];
+      }
+      return const [];
+    }
+    return vntManager.map.entries.where((entry) => !entry.value.isClosed());
+  }
+
   // 加载默认配置（与设置页面逻辑完全一致）
   Future<void> _loadDefaultConfig() async {
     String defaultKey = await _dataPersistence.loadDefaultKey() ?? '';
@@ -204,8 +218,8 @@ class _DashboardPageState extends State<DashboardPage> {
 
     int deviceCount = 0;
     int offlineDeviceCount = 0;
-    String upStream = '0B';
-    String downStream = '0B';
+    double totalUpBytes = 0;
+    double totalDownBytes = 0;
     String configName = '';
     String virtualIp = '';
     String deviceName = '';
@@ -223,38 +237,37 @@ class _DashboardPageState extends State<DashboardPage> {
     double maxUpSpeed = _maxUpSpeed;
     double maxDownSpeed = _maxDownSpeed;
 
-    final allVnts = vntManager.map;
+    final activeEntries = _activeVntEntries().toList();
 
-    for (var entry in allVnts.entries) {
+    for (var entry in activeEntries) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        final devices = vntBox.peerDeviceList();
-        deviceCount += devices.length;
+      final devices = vntBox.peerDeviceList();
+      deviceCount += devices.length;
 
-        // 计算离线设备数
-        for (var device in devices) {
-          if (device.status != 'Online') {
-            offlineDeviceCount++;
-          }
+      // 计算离线设备数
+      for (var device in devices) {
+        if (device.status != 'Online') {
+          offlineDeviceCount++;
         }
+      }
 
-        // 获取总流量（直接使用API返回的字符串）
-        upStream = vntBox.upStream();
-        downStream = vntBox.downStream();
+      // 解析流量字符串为字节数（用于计算速率）
+      totalUpBytes += _parseTrafficToBytes(vntBox.upStream());
+      totalDownBytes += _parseTrafficToBytes(vntBox.downStream());
+    }
 
-        // 解析流量字符串为字节数（用于计算速率）
-        double currentUpBytes = _parseTrafficToBytes(upStream);
-        double currentDownBytes = _parseTrafficToBytes(downStream);
+    final upStream = _formatTraffic(totalUpBytes);
+    final downStream = _formatTraffic(totalDownBytes);
 
-        // 计算速率（当前流量 - 上次流量）/ 时间间隔
-        // 时间间隔是2秒（定时器周期）
-        if (!_isFirstUpdate) {
-          double upSpeed = (currentUpBytes - _lastUpBytes) / 2.0;  // 字节/秒
-          double downSpeed = (currentDownBytes - _lastDownBytes) / 2.0;
+    // 计算速率（当前流量 - 上次流量）/ 时间间隔
+    // 时间间隔是2秒（定时器周期）
+    if (!_isFirstUpdate) {
+      double upSpeed = (totalUpBytes - _lastUpBytes) / 2.0;  // 字节/秒
+      double downSpeed = (totalDownBytes - _lastDownBytes) / 2.0;
 
-          // 如果速率为负（可能是重启或重置），设为0
-          if (upSpeed < 0) upSpeed = 0;
-          if (downSpeed < 0) downSpeed = 0;
+      // 如果速率为负（可能是重启或重置），设为0
+      if (upSpeed < 0) upSpeed = 0;
+      if (downSpeed < 0) downSpeed = 0;
 
           // 添加到历史记录（保持最近100个数据点）
           _uploadSpeedHistory.add(upSpeed);
@@ -295,19 +308,22 @@ class _DashboardPageState extends State<DashboardPage> {
           if (_downloadSpeedHistory.isNotEmpty) {
             maxDownSpeed = _downloadSpeedHistory.reduce((a, b) => a > b ? a : b);
           }
-        } else {
-          _isFirstUpdate = false;
-        }
+    } else {
+      _isFirstUpdate = false;
+    }
 
-        // 保存当前流量值，用于下次计算速率
-        _lastUpBytes = currentUpBytes;
-        _lastDownBytes = currentDownBytes;
+    // 保存当前流量值，用于下次计算速率
+    _lastUpBytes = totalUpBytes;
+    _lastDownBytes = totalDownBytes;
 
-        // 获取配置名
-        final config = vntBox.getNetConfig();
-        if (config != null) {
-          configName = config.configName;
-          isEncrypted = config.groupPassword.isNotEmpty;
+    for (var entry in activeEntries) {
+      final vntBox = entry.value;
+      final devices = vntBox.peerDeviceList();
+      // 获取配置名
+      final config = vntBox.getNetConfig();
+      if (config != null) {
+        configName = config.configName;
+        isEncrypted = config.groupPassword.isNotEmpty;
 
           // 获取加密算法
           if (isEncrypted) {
@@ -324,7 +340,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
           // 判断虚拟IP是否为自动分配（配置中的virtualIPv4为空表示自动分配）
           _isVirtualIpAutoAssigned = config.virtualIPv4.isEmpty;
-        }
+      }
 
         // 获取当前设备信息
         final currentDevice = vntBox.currentDevice();
@@ -383,7 +399,6 @@ class _DashboardPageState extends State<DashboardPage> {
               _pingHistory.removeAt(0);
             }
           }
-        }
       }
     }
 
@@ -397,7 +412,7 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     setState(() {
-      _connectionCount = vntManager.size();
+      _connectionCount = activeEntries.length;
       _deviceCount = deviceCount;
       _offlineDeviceCount = offlineDeviceCount;
       _totalUpStream = upStream;
@@ -1417,13 +1432,9 @@ class _DashboardPageState extends State<DashboardPage> {
     // 获取所有设备的流量数据
     List<(String, BigInt, BigInt)> deviceTrafficList = [];
 
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        deviceTrafficList = vntBox.vntApi.streamAll();
-        break; // 只取第一个连接的数据
-      }
+      deviceTrafficList.addAll(vntBox.vntApi.streamAll());
     }
 
     // 转换设备数据并计算总流量（使用设备流量总和）
@@ -2870,21 +2881,18 @@ class _DashboardPageState extends State<DashboardPage> {
     int relayCount = 0;
     int totalOnlineDevices = 0;
 
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        final devices = vntBox.peerDeviceList();
-        for (var device in devices) {
-          if (_isDeviceOnline(device.status)) {
-            totalOnlineDevices++;
-            final route = vntBox.route(device.virtualIp);
-            if (route != null) {
-              if (route.metric == 1) {
-                p2pCount++;
-              } else {
-                relayCount++;
-              }
+      final devices = vntBox.peerDeviceList();
+      for (var device in devices) {
+        if (_isDeviceOnline(device.status)) {
+          totalOnlineDevices++;
+          final route = vntBox.route(device.virtualIp);
+          if (route != null) {
+            if (route.metric == 1) {
+              p2pCount++;
+            } else {
+              relayCount++;
             }
           }
         }
@@ -3607,15 +3615,12 @@ class _DashboardPageState extends State<DashboardPage> {
     // 获取当前设备的详细信息
     Map<String, dynamic> deviceInfo = {};
 
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        deviceInfo = vntBox.currentDevice();
-        deviceInfo['upStream'] = vntBox.upStream();
-        deviceInfo['downStream'] = vntBox.downStream();
-        break;
-      }
+      deviceInfo = vntBox.currentDevice();
+      deviceInfo['upStream'] = vntBox.upStream();
+      deviceInfo['downStream'] = vntBox.downStream();
+      break;
     }
 
     showDialog(
@@ -3840,13 +3845,10 @@ class _DashboardPageState extends State<DashboardPage> {
     // 获取当前配置信息
     NetworkConfig? configNullable;
 
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        configNullable = vntBox.getNetConfig();
-        break;
-      }
+      configNullable = vntBox.getNetConfig();
+      break;
     }
 
     if (configNullable == null) return;
@@ -4124,48 +4126,45 @@ class _DashboardPageState extends State<DashboardPage> {
     int onlineCount = 0;
     int offlineCount = 0;
 
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        final devices = vntBox.peerDeviceList();
-        for (var device in devices) {
-          bool isOnline = _isDeviceOnline(device.status);
-          if (isOnline) {
-            onlineCount++;
-          } else {
-            offlineCount++;
-          }
-
-          // 获取路由信息
-          final route = vntBox.route(device.virtualIp);
-          String p2pRelay = '';
-          String rt = '';
-          int rtValue = 0;
-          if (route != null) {
-            p2pRelay = route.metric == 1 ? 'P2P' : 'Relay';
-            rtValue = route.rt;
-            rt = route.rt > 0 && route.rt < 9999 ? '${route.rt}ms' : '--';
-          }
-
-          // 获取NAT类型信息
-          String natType = '';
-          final natInfo = vntBox.peerNatInfo(device.virtualIp);
-          if (natInfo != null) {
-            natType = natInfo.natType;
-          }
-
-          deviceList.add({
-            'name': device.name,
-            'ip': device.virtualIp,
-            'status': device.status,
-            'isOnline': isOnline,
-            'p2pRelay': p2pRelay,
-            'rt': rt,
-            'rtValue': rtValue,
-            'natType': natType,
-          });
+      final devices = vntBox.peerDeviceList();
+      for (var device in devices) {
+        bool isOnline = _isDeviceOnline(device.status);
+        if (isOnline) {
+          onlineCount++;
+        } else {
+          offlineCount++;
         }
+
+        // 获取路由信息
+        final route = vntBox.route(device.virtualIp);
+        String p2pRelay = '';
+        String rt = '';
+        int rtValue = 0;
+        if (route != null) {
+          p2pRelay = route.metric == 1 ? 'P2P' : 'Relay';
+          rtValue = route.rt;
+          rt = route.rt > 0 && route.rt < 9999 ? '${route.rt}ms' : '--';
+        }
+
+        // 获取NAT类型信息
+        String natType = '';
+        final natInfo = vntBox.peerNatInfo(device.virtualIp);
+        if (natInfo != null) {
+          natType = natInfo.natType;
+        }
+
+        deviceList.add({
+          'name': device.name,
+          'ip': device.virtualIp,
+          'status': device.status,
+          'isOnline': isOnline,
+          'p2pRelay': p2pRelay,
+          'rt': rt,
+          'rtValue': rtValue,
+          'natType': natType,
+        });
       }
     }
 

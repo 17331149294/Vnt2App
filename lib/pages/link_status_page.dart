@@ -67,30 +67,53 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     return status.trim().toLowerCase() == 'online';
   }
 
+  Iterable<MapEntry<String, VntBox>> _activeVntEntries() {
+    final scopedKey = widget.selectedConfig?.itemKey.trim() ?? '';
+    if (scopedKey.isNotEmpty) {
+      final scopedBox = vntManager.map[scopedKey];
+      if (scopedBox != null && !scopedBox.isClosed()) {
+        return [MapEntry(scopedKey, scopedBox)];
+      }
+      return const [];
+    }
+    return vntManager.map.entries.where((entry) => !entry.value.isClosed());
+  }
+
+  VntBox? _findBoxForDevice(RustPeerClientInfo device) {
+    for (final entry in _activeVntEntries()) {
+      final box = entry.value;
+      final belongsToBox = box
+          .peerDeviceList()
+          .any((peer) => peer.virtualIp == device.virtualIp);
+      if (belongsToBox) {
+        return box;
+      }
+    }
+    return null;
+  }
+
   void _updateDevices() {
     if (!mounted) return;
 
-    final allVnts = vntManager.map;
     List<RustPeerClientInfo> devices = [];
 
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        devices.addAll(vntBox.peerDeviceList());
+      final boxDevices = vntBox.peerDeviceList();
+      devices.addAll(boxDevices);
 
-        // 更新延迟历史数据
-        for (var device in devices) {
-          final route = vntBox.route(device.virtualIp);
-          if (route != null && route.rt > 0 && route.rt < 9999) {
-            if (!_latencyHistory.containsKey(device.virtualIp)) {
-              _latencyHistory[device.virtualIp] = [];
-            }
-            _latencyHistory[device.virtualIp]!.add(route.rt);
+      // 更新延迟历史数据
+      for (var device in boxDevices) {
+        final route = vntBox.route(device.virtualIp);
+        if (route != null && route.rt > 0 && route.rt < 9999) {
+          if (!_latencyHistory.containsKey(device.virtualIp)) {
+            _latencyHistory[device.virtualIp] = [];
+          }
+          _latencyHistory[device.virtualIp]!.add(route.rt);
 
-            // 保持历史数据长度不超过最大值
-            if (_latencyHistory[device.virtualIp]!.length > _maxHistoryLength) {
-              _latencyHistory[device.virtualIp]!.removeAt(0);
-            }
+          // 保持历史数据长度不超过最大值
+          if (_latencyHistory[device.virtualIp]!.length > _maxHistoryLength) {
+            _latencyHistory[device.virtualIp]!.removeAt(0);
           }
         }
       }
@@ -109,7 +132,7 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final screenWidth = MediaQuery.of(context).size.width;
     final isWideScreen = screenWidth > 600;
-    final hasConnection = vntManager.size() > 0;
+    final hasConnection = _activeVntEntries().isNotEmpty;
     final primaryColor = Theme.of(context).primaryColor;
 
     return Scaffold(
@@ -190,16 +213,13 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     // 获取当前连接的配置名称
     String? configName;
     if (hasConnection) {
-      final allVnts = vntManager.map;
-      for (var entry in allVnts.entries) {
+      for (var entry in _activeVntEntries()) {
         final vntBox = entry.value;
-        if (!vntBox.isClosed()) {
-          final netConfig = vntBox.getNetConfig();
-          if (netConfig != null) {
-            configName = netConfig.configName;
-          }
-          break;
+        final netConfig = vntBox.getNetConfig();
+        if (netConfig != null) {
+          configName = netConfig.configName;
         }
+        break;
       }
     }
 
@@ -447,21 +467,18 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     // 收集所有路由信息
     List<Map<String, dynamic>> allRoutes = [];
 
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        final routeList = vntBox.routeList();
-        for (var routeEntry in routeList) {
-          final destination = routeEntry.$1;
-          final routes = routeEntry.$2;
+      final routeList = vntBox.routeList();
+      for (var routeEntry in routeList) {
+        final destination = routeEntry.$1;
+        final routes = routeEntry.$2;
 
-          for (var route in routes) {
-            allRoutes.add({
-              'destination': destination,
-              'route': route,
-            });
-          }
+        for (var route in routes) {
+          allRoutes.add({
+            'destination': destination,
+            'route': route,
+          });
         }
       }
     }
@@ -534,25 +551,21 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     String natType = '';
     String publicIp = '';
 
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
-      final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        final route = vntBox.route(device.virtualIp);
-        if (route != null) {
-          p2pRelay = route.metric == 1 ? 'P2P' : '中继';
-          rt = route.rt;
-        }
+    final vntBox = _findBoxForDevice(device);
+    if (vntBox != null) {
+      final route = vntBox.route(device.virtualIp);
+      if (route != null) {
+        p2pRelay = route.metric == 1 ? 'P2P' : '中继';
+        rt = route.rt;
+      }
 
-        // 获取NAT信息
-        final natInfo = vntBox.peerNatInfo(device.virtualIp);
-        if (natInfo != null) {
-          natType = natInfo.natType;
-          if (natInfo.publicIps.isNotEmpty) {
-            publicIp = natInfo.publicIps.first;
-          }
+      // 获取NAT信息
+      final natInfo = vntBox.peerNatInfo(device.virtualIp);
+      if (natInfo != null) {
+        natType = natInfo.natType;
+        if (natInfo.publicIps.isNotEmpty) {
+          publicIp = natInfo.publicIps.first;
         }
-        break;
       }
     }
 
@@ -1149,35 +1162,30 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     int currentRt = 0;
     double avgLatency = 0;
 
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
-      final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        // 获取NAT信息
-        final natInfo = vntBox.peerNatInfo(device.virtualIp);
-        if (natInfo != null) {
-          natType = natInfo.natType;
-          publicIps = natInfo.publicIps;
-          localIpv4 = natInfo.localIpv4;
-          ipv6 = natInfo.ipv6;
-        }
+    final vntBox = _findBoxForDevice(device);
+    if (vntBox != null) {
+      // 获取NAT信息
+      final natInfo = vntBox.peerNatInfo(device.virtualIp);
+      if (natInfo != null) {
+        natType = natInfo.natType;
+        publicIps = natInfo.publicIps;
+        localIpv4 = natInfo.localIpv4;
+        ipv6 = natInfo.ipv6;
+      }
 
-        // 获取路由信息
-        final allRouteList = vntBox.routeList();
-        for (var routes in allRouteList) {
-          if (routes.$1 == device.virtualIp) {
-            routeList = routes.$2;
-            break;
-          }
+      // 获取路由信息
+      final allRouteList = vntBox.routeList();
+      for (var routes in allRouteList) {
+        if (routes.$1 == device.virtualIp) {
+          routeList = routes.$2;
+          break;
         }
+      }
 
-        // 获取当前延迟
-        final route = vntBox.route(device.virtualIp);
-        if (route != null && route.rt > 0 && route.rt < 9999) {
-          currentRt = route.rt;
-        }
-
-        break;
+      // 获取当前延迟
+      final route = vntBox.route(device.virtualIp);
+      if (route != null && route.rt > 0 && route.rt < 9999) {
+        currentRt = route.rt;
       }
     }
 
@@ -1761,15 +1769,12 @@ class _LinkStatusPageState extends State<LinkStatusPage>
 
     // 获取当前设备信息
     Map<String, dynamic>? deviceInfo;
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        deviceInfo = vntBox.currentDevice();
-        deviceInfo['upStream'] = vntBox.upStream();
-        deviceInfo['downStream'] = vntBox.downStream();
-        break;
-      }
+      deviceInfo = vntBox.currentDevice();
+      deviceInfo['upStream'] = vntBox.upStream();
+      deviceInfo['downStream'] = vntBox.downStream();
+      break;
     }
 
     if (deviceInfo == null) return;
@@ -1908,18 +1913,12 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).primaryColor;
 
-    // 获取网络配置信息
+    // 获取实际传给 core 的网络配置参数
     String? configInfo;
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        final netConfig = vntBox.getNetConfig();
-        if (netConfig != null) {
-          configInfo = json2yaml(netConfig.toJsonSimple());
-        }
-        break;
-      }
+      configInfo = json2yaml(vntBox.coreConfig());
+      break;
     }
 
     if (configInfo == null) return;
@@ -2057,16 +2056,13 @@ class _LinkStatusPageState extends State<LinkStatusPage>
 
     // 获取当前连接的配置名称
     String? configName;
-    final allVnts = vntManager.map;
-    for (var entry in allVnts.entries) {
+    for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      if (!vntBox.isClosed()) {
-        final netConfig = vntBox.getNetConfig();
-        if (netConfig != null) {
-          configName = netConfig.configName;
-        }
-        break;
+      final netConfig = vntBox.getNetConfig();
+      if (netConfig != null) {
+        configName = netConfig.configName;
       }
+      break;
     }
 
     showDialog(
@@ -2162,11 +2158,12 @@ class _LinkStatusPageState extends State<LinkStatusPage>
                       onPressed: () async {
                         Navigator.pop(context);
 
-                        // 获取所有连接的key
-                        final allVnts = vntManager.map;
-                        final keys = allVnts.keys.toList();
+                        // 获取当前页面范围内连接的 key
+                        final keys = _activeVntEntries()
+                            .map((entry) => entry.key)
+                            .toList();
 
-                        // 断开所有连接
+                        // 断开当前页面范围内的连接
                         for (var key in keys) {
                           await vntManager.remove(key);
                         }

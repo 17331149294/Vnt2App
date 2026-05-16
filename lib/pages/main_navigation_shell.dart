@@ -50,7 +50,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
         icon: Icons.meeting_room_outlined,
         activeIcon: Icons.meeting_room,
         label: '房间'),
-    _NavItem(icon: Icons.link_outlined, activeIcon: Icons.link, label: '链接状态'),
+    _NavItem(icon: Icons.link_outlined, activeIcon: Icons.link, label: '状态'),
     _NavItem(
         icon: Icons.folder_outlined, activeIcon: Icons.folder, label: '配置'),
     _NavItem(
@@ -367,6 +367,9 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       case RustErrorType.failedToCreateDevice:
         errorMessage = '[$configName] 虚拟网卡创建失败';
         break;
+      case RustErrorType.networkError:
+        errorMessage = '[$configName] 网络连接初始化失败';
+        break;
       case RustErrorType.warn:
         errorMessage = '[$configName] 警告';
         break;
@@ -576,7 +579,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
                   ),
                   SizedBox(height: logoSpacing),
                   Text(
-                    'VNT',
+                    'VNT2',
                     style: TextStyle(
                       fontSize: logoFontSize,
                       fontWeight: FontWeight.bold,
@@ -802,13 +805,16 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       children: [
         // 0: 仪表盘
         DashboardPage(
+          selectedConfig: _selectedConfig,
           onNavigateToConfig: () => setState(() => _selectedIndex = 3),
           onNavigateToSettings: () => setState(() => _selectedIndex = 4),
           onDisconnect: () async {
-            // 获取所有连接的key
-            final keys = vntManager.map.keys.toList();
+            final selectedKey = _selectedConfig?.itemKey.trim() ?? '';
+            final keys = selectedKey.isNotEmpty
+                ? [selectedKey]
+                : vntManager.map.keys.toList();
 
-            // 断开所有连接
+            // 断开当前范围内的连接
             for (var key in keys) {
               await vntManager.remove(key);
             }
