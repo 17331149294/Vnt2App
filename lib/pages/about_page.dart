@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:vnt2_app/theme/app_theme.dart';
 import 'package:vnt2_app/utils/toast_utils.dart';
 import 'package:vnt2_app/utils/responsive_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:yaml/yaml.dart';
 
 /// 关于页面
 class AboutPage extends StatefulWidget {
@@ -13,13 +16,34 @@ class AboutPage extends StatefulWidget {
 }
 
 class _AboutPageState extends State<AboutPage> {
-  // 硬编码版本号
-  final String _version = '2.0.0';
-  final String _buildNumber = '1';
+  String _version = '2.0.0';
+  String _buildNumber = '1';
+  int _latestVersionBadgeRetry = 0;
   static const String _latestVersionBadgeUrl =
       'https://img.shields.io/github/v/tag/lmq8267/Vnt2App?logo=github&label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&link=https%3A%2F%2Fgithub.com%2Flmq8267%2FVnt2App%2Freleases';
-  static const String _releasesUrl =
-      'https://github.com/lmq8267/Vnt2App/releases';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final content = await rootBundle.loadString('pubspec.yaml');
+      final yaml = loadYaml(content) as YamlMap;
+      final version = yaml['version'].toString(); // e.g. "2.0.0+1"
+      final parts = version.split('+');
+      if (mounted) {
+        setState(() {
+          _version = parts[0];
+          _buildNumber = parts.length > 1 ? parts[1] : '1';
+        });
+      }
+    } catch (_) {
+      // 读取失败时保持空字符串，UI 不显示版本号
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -223,37 +247,73 @@ class _AboutPageState extends State<AboutPage> {
   }
 
   Widget _buildLatestVersionBadge() {
+    final primaryColor = Theme.of(context).primaryColor;
+    final badgeUrl = '$_latestVersionBadgeUrl&retry=$_latestVersionBadgeRetry';
     return Tooltip(
       message: '查看 GitHub 最新版本',
-      child: InkWell(
-        onTap: () => _launchUrl(_releasesUrl),
-        borderRadius: BorderRadius.circular(4),
-        child: Image.network(
-          _latestVersionBadgeUrl,
+      child: SizedBox(
+        height: 22,
+        child: SvgPicture.network(
+          badgeUrl,
+          key: ValueKey(badgeUrl),
           height: 22,
           fit: BoxFit.contain,
+          placeholderBuilder: (context) => _buildLatestVersionStatusBadge(
+            primaryColor,
+            label: '最新版本加载中',
+            icon: Icons.sync,
+          ),
           errorBuilder: (context, error, stackTrace) {
-            final primaryColor = Theme.of(context).primaryColor;
-            return Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: context.spacingSmall,
-                vertical: context.spacingXSmall,
-              ),
-              decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                '最新版本',
-                style: TextStyle(
-                  color: primaryColor,
-                  fontSize: context.fontSmall,
-                  fontWeight: FontWeight.w600,
-                ),
+            return InkWell(
+              onTap: () {
+                setState(() {
+                  _latestVersionBadgeRetry++;
+                });
+              },
+              borderRadius: BorderRadius.circular(4),
+              child: _buildLatestVersionStatusBadge(
+                primaryColor,
+                label: '加载失败，点击重试',
+                icon: Icons.refresh,
               ),
             );
           },
         ),
+      ),
+    );
+  }
+
+  Widget _buildLatestVersionStatusBadge(
+    Color primaryColor, {
+    required String label,
+    required IconData icon,
+  }) {
+    return Container(
+      height: 22,
+      padding: EdgeInsets.symmetric(horizontal: context.spacingSmall),
+      decoration: BoxDecoration(
+        color: primaryColor.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: primaryColor.withOpacity(0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: context.iconXSmall,
+            color: primaryColor,
+          ),
+          SizedBox(width: context.spacingXSmall),
+          Text(
+            label,
+            style: TextStyle(
+              color: primaryColor,
+              fontSize: context.fontSmall,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

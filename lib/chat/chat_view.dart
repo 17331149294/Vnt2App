@@ -1488,8 +1488,9 @@ class _ChatRoomViewState extends State<ChatRoomView> {
       return;
     }
     String? selectedNetworkKey = chatManager.preferredNetworkKey(
-      scopedNetworkKey: _scopedNetworkKey,
-    );
+          scopedNetworkKey: _scopedNetworkKey,
+        ) ??
+        connectedNetworks.first;
     bool isPrivate = false;
     final selectedIds = <String>{};
     final nameController = TextEditingController();
@@ -1498,10 +1499,16 @@ class _ChatRoomViewState extends State<ChatRoomView> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            final currentNetworkKey = selectedNetworkKey ?? '';
+            final candidates =
+                chatManager.onlinePeersForNetwork(currentNetworkKey);
+            final screenWidth = MediaQuery.of(context).size.width;
+            final dialogWidth =
+                screenWidth < 560 ? screenWidth - 64 : 420.0;
             return AlertDialog(
               title: const Text('创建频道'),
               content: SizedBox(
-                width: 420,
+                width: dialogWidth,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1541,33 +1548,37 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                       contentPadding: EdgeInsets.zero,
                       value: isPrivate,
                       title: const Text('私密频道'),
-                      subtitle: const Text('私密频道只邀请指定成员'),
+                      subtitle: Text(
+                        candidates.isEmpty
+                            ? '暂无在线成员，也可以先创建本地私密频道'
+                            : '私密频道只邀请指定成员',
+                      ),
                       onChanged: (value) => setState(() => isPrivate = value),
                     ),
                     if (isPrivate) ...[
                       const SizedBox(height: 8),
                       SizedBox(
                         height: 220,
-                        child: ListView(
-                          children: chatManager
-                              .onlinePeersForNetwork(selectedNetworkKey ?? '')
-                              .map((peer) {
-                            return CheckboxListTile(
-                              value: selectedIds.contains(peer.peerId),
-                              title: Text(peer.displayName),
-                              subtitle: Text(peer.virtualIp),
-                              onChanged: (value) {
-                                setState(() {
-                                  if (value == true) {
-                                    selectedIds.add(peer.peerId);
-                                  } else {
-                                    selectedIds.remove(peer.peerId);
-                                  }
-                                });
-                              },
-                            );
-                          }).toList(),
-                        ),
+                        child: candidates.isEmpty
+                            ? const Center(child: Text('当前网络暂无在线成员'))
+                            : ListView(
+                                children: candidates.map((peer) {
+                                  return CheckboxListTile(
+                                    value: selectedIds.contains(peer.peerId),
+                                    title: Text(peer.displayName),
+                                    subtitle: Text(peer.virtualIp),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        if (value == true) {
+                                          selectedIds.add(peer.peerId);
+                                        } else {
+                                          selectedIds.remove(peer.peerId);
+                                        }
+                                      });
+                                    },
+                                  );
+                                }).toList(),
+                              ),
                       ),
                     ],
                   ],
@@ -1605,12 +1616,21 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         .onlinePeersForNetwork(networkKey)
         .where((peer) => selectedIds.contains(peer.peerId))
         .toList();
-    await chatManager.createChannel(
-      networkKey: networkKey,
-      name: trimmed,
-      isPrivate: isPrivate,
-      invitedPeers: invited,
-    );
+    try {
+      await chatManager.createChannel(
+        networkKey: networkKey,
+        name: trimmed,
+        isPrivate: isPrivate,
+        invitedPeers: invited,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('创建频道失败: $error')),
+      );
+    }
   }
 
   Future<void> _showDiagnosticsDialog() async {

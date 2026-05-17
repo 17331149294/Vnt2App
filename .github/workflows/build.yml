@@ -80,6 +80,15 @@ jobs:
         #with:
          #ref: flutter
 
+      - name: 更新 pubspec.yaml 版本号
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version != '' }}
+        shell: bash
+        run: |
+          VERSION="${{ inputs.release_version }}"
+          VERSION="${VERSION#v}"
+          sed -i "s/^version: .*/version: $VERSION/" pubspec.yaml
+          echo "pubspec version → $VERSION"
+
       - name: 设置 Xcode 版本
         if: matrix.NAME == 'vnt2App-IOS'
         uses: maxim-lobanov/setup-xcode@v1
@@ -520,7 +529,7 @@ jobs:
 
   deploy:
     needs: build
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.release_version != '' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts

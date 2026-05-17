@@ -64,6 +64,7 @@ dependencies:
   audio_io: ^0.3.2
   flutter_sound: ^9.28.0
   record: ^6.0.0
+  flutter_svg: ^2.0.10
 
 dependency_overrides:
 dev_dependencies:
@@ -124,6 +125,7 @@ flutter:
   # see https://flutter.dev/custom-fonts/#from-packages
 
   assets:
+    - pubspec.yaml
     - assets/app_icon.ico
     - assets/app_icon.png
     - assets/ic_launcher.png

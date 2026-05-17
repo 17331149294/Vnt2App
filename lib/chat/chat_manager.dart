@@ -1208,6 +1208,50 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     return null;
   }
 
+  Future<String?> _ensureLocalPeerForNetwork(String networkKey) async {
+    final localPeerId = _localPeerIdForNetwork(networkKey);
+    if (localPeerId == null) {
+      return null;
+    }
+    final box = vntManager.map[networkKey];
+    final localIp = localPeerId.startsWith('$networkKey:')
+        ? localPeerId.substring(networkKey.length + 1)
+        : localPeerId;
+    final now = DateTime.now();
+    final existing = await _repository.getPeer(localPeerId);
+    final deviceName = box?.getNetConfig()?.deviceName.trim();
+    await _repository.upsertPeer(
+      ChatPeer(
+        peerId: localPeerId,
+        networkKey: networkKey,
+        virtualIp: localIp,
+        deviceName: (deviceName != null && deviceName.isNotEmpty)
+            ? deviceName
+            : (existing?.deviceName ?? localIp),
+        remark: existing?.remark ?? '',
+        isOnline: true,
+        lastSeenAt: now,
+        capabilities: existing?.capabilities ??
+            const [
+              'text',
+              'image',
+              'file',
+              'voice_note',
+              'voice_call',
+              'channels',
+            ],
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      ),
+    );
+    await _ensureDefaultLobbyForNetwork(
+      networkKey: networkKey,
+      localPeerId: localPeerId,
+      now: now,
+    );
+    return localPeerId;
+  }
+
   ChatPeer _normalizePeerOnlineState(ChatPeer peer, DateTime now) {
     final effectivelyOnline = chatPeerIsEffectivelyOnline(peer, now: now);
     if (effectivelyOnline == peer.isOnline) {
@@ -1577,8 +1621,9 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     required bool isPrivate,
     List<ChatPeer> invitedPeers = const [],
   }) async {
-    final localPeerId = _localPeerIdForNetwork(networkKey);
+    final localPeerId = await _ensureLocalPeerForNetwork(networkKey);
     if (localPeerId == null) {
+      _pushStatus('当前网络还未拿到本机虚拟 IP，暂时无法创建房间');
       return;
     }
     final now = DateTime.now();
@@ -1632,19 +1677,32 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
             updatedAt: now,
           ),
         );
-        await _sendEnvelopeToPeer(
-          networkKey: networkKey,
-          peerId: peer.peerId,
-          type: ChatEnvelopeType.channelInvite,
-          conversationId: conversationId,
-          channelId: channelId,
-          payload: {
-            'channelId': channelId,
-            'name': name.trim(),
-            'ownerPeerId': localPeerId,
-            'isPrivate': true,
-          },
-        );
+        try {
+          await _sendEnvelopeToPeer(
+            networkKey: networkKey,
+            peerId: peer.peerId,
+            type: ChatEnvelopeType.channelInvite,
+            conversationId: conversationId,
+            channelId: channelId,
+            payload: {
+              'channelId': channelId,
+              'name': name.trim(),
+              'ownerPeerId': localPeerId,
+              'isPrivate': true,
+            },
+          );
+        } catch (error) {
+          await _logger.warn(
+            'channel',
+            '私密房间邀请发送失败，已保留本地房间',
+            networkKey: networkKey,
+            extra: {
+              'channelId': channelId,
+              'peerId': peer.peerId,
+              'error': error.toString(),
+            },
+          );
+        }
       }
     } else {
       final peers = await _repository.listPeers(
@@ -1668,6 +1726,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
       );
     }
     await selectConversation(conversationId);
+    await _reloadSidebar();
     await _logger.info(
       'channel',
       '创建频道',

@@ -71,6 +71,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
         return LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 900;
+            final horizontalPadding = constraints.maxWidth < 520 ? 10.0 : 16.0;
             final sections = [
               _buildSectionCard(
                 context: context,
@@ -106,12 +107,12 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
             ];
 
             return ListView(
-              padding: const EdgeInsets.all(12),
+              padding: EdgeInsets.all(horizontalPadding),
               children: [
                 _buildOverviewPanel(context),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 _buildDebugToolsCard(context),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 if (wide)
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -120,19 +121,19 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                         child: Column(
                           children: [
                             sections[0],
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 14),
                             sections[2],
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 14),
                       Expanded(child: sections[1]),
                     ],
                   )
                 else
                   ...sections.expand((section) => [
                         section,
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
                       ]),
               ],
             );
@@ -145,23 +146,41 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
   Widget _buildOverviewPanel(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final hasNetwork = _connectedNetworkKeys.isNotEmpty;
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primary.withOpacity(0.14),
+            colorScheme.secondaryContainer.withOpacity(0.45),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.primary.withOpacity(0.12)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Wrap(
-          spacing: 12,
-          runSpacing: 12,
+          spacing: 14,
+          runSpacing: 14,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Icon(
-              hasNetwork ? Icons.hub_outlined : Icons.cloud_off_outlined,
-              color: hasNetwork ? colorScheme.primary : colorScheme.outline,
-              size: 28,
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: colorScheme.surface.withOpacity(0.72),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                hasNetwork ? Icons.hub_outlined : Icons.cloud_off_outlined,
+                color: hasNetwork ? colorScheme.primary : colorScheme.outline,
+                size: 26,
+              ),
             ),
-            SizedBox(
-              width: 260,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 220, maxWidth: 360),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -213,10 +232,11 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
-        color: colorScheme.primary.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(8),
+        color: colorScheme.surface.withOpacity(0.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colorScheme.primary.withOpacity(0.10)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -263,8 +283,12 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.5)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -319,14 +343,25 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.5)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+                Icon(
+                  icon,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   title,
@@ -353,7 +388,6 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                     ),
                   ),
                 ),
-                const Spacer(),
                 if (trailing != null) trailing,
               ],
             ),
@@ -583,8 +617,13 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
       decoration: BoxDecoration(
         color: selected
             ? Theme.of(context).colorScheme.primary.withOpacity(0.08)
-            : Colors.transparent,
+            : Theme.of(context).colorScheme.surface.withOpacity(0.45),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: selected
+              ? Theme.of(context).colorScheme.primary.withOpacity(0.20)
+              : Theme.of(context).dividerColor.withOpacity(0.35),
+        ),
       ),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -678,10 +717,27 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
             final currentNetworkKey = selectedNetworkKey ?? '';
             final candidates =
                 chatManager.onlinePeersForNetwork(currentNetworkKey);
+            final screenWidth = MediaQuery.of(context).size.width;
+            final dialogWidth =
+                screenWidth < 560 ? screenWidth - 64 : 460.0;
             return AlertDialog(
-              title: const Text('创建房间'),
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              title: Row(
+                children: [
+                  Icon(
+                    Icons.meeting_room_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(child: Text('创建房间')),
+                ],
+              ),
               content: SizedBox(
-                width: 460,
+                width: dialogWidth,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -705,7 +761,9 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                '房间会绑定到当前组网，公开房间会向在线成员同步。',
+                                candidates.isEmpty
+                                    ? '当前没有其他在线成员，也可以先创建本地房间。其他设备上线后会同步公开房间。'
+                                    : '房间会绑定到当前组网，公开房间会向在线成员同步。',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ),
@@ -815,7 +873,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                 ),
                 FilledButton(
                   onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('创建'),
+                  child: const Text('创建房间'),
                 ),
               ],
             );
@@ -840,12 +898,22 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
         .onlinePeersForNetwork(networkKey)
         .where((peer) => selectedIds.contains(peer.peerId))
         .toList();
-    await chatManager.createChannel(
-      networkKey: networkKey,
-      name: trimmed,
-      isPrivate: isPrivate,
-      invitedPeers: invited,
-    );
+    try {
+      await chatManager.createChannel(
+        networkKey: networkKey,
+        name: trimmed,
+        isPrivate: isPrivate,
+        invitedPeers: invited,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('创建房间失败: $error')),
+      );
+      return;
+    }
     final conversationId = chatManager.selectedConversationId;
     if (conversationId != null && mounted) {
       await widget.onOpenChannelConversation(conversationId);
