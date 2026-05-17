@@ -1745,7 +1745,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              '注：VNT 仅统计虚拟网络流量，无法追踪本地其他程序的流量',
+                              '注：VNT 仅统计虚拟网络设备流量，不包含服务器连接、注册、保活等控制通道流量，也不统计本地其他程序流量',
                               style: TextStyle(
                                 fontSize: context.fontXSmall,
                                 color: isDark ? Colors.white38 : Colors.black38,

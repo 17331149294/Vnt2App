@@ -138,11 +138,37 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   bool get isRemoteAssistRuntimeReady => _remoteAssistRuntimeReady;
 
   List<String> get connectedNetworkKeys {
-    final keys = _services.keys.toList()..sort();
+    final keys = {
+      ..._services.keys,
+      ..._activeVntNetworkKeys,
+    }.toList()
+      ..sort();
     return keys;
   }
 
   bool get hasMultipleNetworks => connectedNetworkKeys.length > 1;
+
+  List<String> get _activeVntNetworkKeys {
+    final keys = <String>[];
+    for (final entry in vntManager.map.entries) {
+      if (entry.value.isClosed()) {
+        continue;
+      }
+      if (_localVirtualIpFromBox(entry.value).isEmpty) {
+        continue;
+      }
+      keys.add(entry.key);
+    }
+    return keys;
+  }
+
+  String _localVirtualIpFromBox(VntBox box) {
+    final currentIp = box.currentDevice()['virtualIp'] as String? ?? '';
+    if (currentIp.trim().isNotEmpty) {
+      return currentIp.trim();
+    }
+    return box.getNetConfig()?.virtualIPv4.trim() ?? '';
+  }
 
   List<String> connectedNetworkKeysForScope({String? scopedNetworkKey}) {
     final keys = connectedNetworkKeys;
@@ -323,7 +349,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
       if (box.isClosed()) {
         continue;
       }
-      final localIp = box.currentDevice()['virtualIp'] as String? ?? '';
+      final localIp = _localVirtualIpFromBox(box);
       if (localIp.isEmpty) {
         continue;
       }
@@ -1169,10 +1195,17 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
 
   String? _localPeerIdForNetwork(String networkKey) {
     final service = _services[networkKey];
-    if (service == null || service.localVirtualIp.isEmpty) {
-      return null;
+    if (service != null && service.localVirtualIp.isNotEmpty) {
+      return ChatIds.peerId(networkKey, service.localVirtualIp);
     }
-    return ChatIds.peerId(networkKey, service.localVirtualIp);
+    final box = vntManager.map[networkKey];
+    if (box != null && !box.isClosed()) {
+      final localIp = _localVirtualIpFromBox(box);
+      if (localIp.isNotEmpty) {
+        return ChatIds.peerId(networkKey, localIp);
+      }
+    }
+    return null;
   }
 
   ChatPeer _normalizePeerOnlineState(ChatPeer peer, DateTime now) {

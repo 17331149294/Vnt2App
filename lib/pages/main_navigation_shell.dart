@@ -389,16 +389,17 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
   Future<void> _connectViaIOSVPN(NetworkConfig config) async {
     try {
       debugPrint('[iOS VPN] Starting VPN connection for: ${config.configName}');
+      final serverAddress = config.primaryServerAddress;
 
       // 保存配置到App Group
       await IOSVPNService.saveConfig(
-        serverAddress: config.serverAddress,
+        serverAddress: serverAddress,
         token: config.token,
       );
 
       // 启动VPN
       final success = await IOSVPNService.startVPN(
-        serverAddress: config.serverAddress,
+        serverAddress: serverAddress,
         token: config.token,
         deviceName: config.deviceName,
       );

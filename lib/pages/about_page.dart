@@ -16,6 +16,10 @@ class _AboutPageState extends State<AboutPage> {
   // 硬编码版本号
   final String _version = '2.0.0';
   final String _buildNumber = '1';
+  static const String _latestVersionBadgeUrl =
+      'https://img.shields.io/github/v/tag/lmq8267/Vnt2App?logo=github&label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&link=https%3A%2F%2Fgithub.com%2Flmq8267%2FVnt2App%2Freleases';
+  static const String _releasesUrl =
+      'https://github.com/lmq8267/Vnt2App/releases';
 
   @override
   Widget build(BuildContext context) {
@@ -170,28 +174,37 @@ class _AboutPageState extends State<AboutPage> {
           ),
           SizedBox(height: context.spacingXSmall),
 
-          // 版本号 - 可点击跳转到GitHub
-          InkWell(
-            onTap: () => _launchUrl('https://github.com/lmq8267/Vnt2App'),
-            borderRadius: BorderRadius.circular(context.cardRadius),
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: context.spacingMedium,
-                vertical: context.spacingXSmall,
-              ),
-              decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.15),
+          // 版本号 - 可点击跳转到 GitHub
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: context.spacingSmall,
+            runSpacing: context.spacingXSmall,
+            children: [
+              InkWell(
+                onTap: () => _launchUrl('https://github.com/lmq8267/Vnt2App'),
                 borderRadius: BorderRadius.circular(context.cardRadius),
-              ),
-              child: Text(
-                'v$_version',
-                style: TextStyle(
-                  fontSize: context.fontBody,
-                  fontWeight: FontWeight.w500,
-                  color: primaryColor,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: context.spacingMedium,
+                    vertical: context.spacingXSmall,
+                  ),
+                  decoration: BoxDecoration(
+                    color: primaryColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(context.cardRadius),
+                  ),
+                  child: Text(
+                    'v$_version',
+                    style: TextStyle(
+                      fontSize: context.fontBody,
+                      fontWeight: FontWeight.w500,
+                      color: primaryColor,
+                    ),
+                  ),
                 ),
               ),
-            ),
+              _buildLatestVersionBadge(),
+            ],
           ),
           SizedBox(height: context.spacingLarge),
 
@@ -205,6 +218,42 @@ class _AboutPageState extends State<AboutPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLatestVersionBadge() {
+    return Tooltip(
+      message: '查看 GitHub 最新版本',
+      child: InkWell(
+        onTap: () => _launchUrl(_releasesUrl),
+        borderRadius: BorderRadius.circular(4),
+        child: Image.network(
+          _latestVersionBadgeUrl,
+          height: 22,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            final primaryColor = Theme.of(context).primaryColor;
+            return Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: context.spacingSmall,
+                vertical: context.spacingXSmall,
+              ),
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '最新版本',
+                style: TextStyle(
+                  color: primaryColor,
+                  fontSize: context.fontSmall,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

@@ -4,27 +4,17 @@ class NetworkConfig {
   String token;
   String deviceName;
   String virtualIPv4;
-  String serverAddress;
   List<String> serverList;
-  List<String> stunServers;
   List<String> udpStun;
   List<String> tcpStun;
   List<String> inIps;
   List<String> outIps;
   List<String> portMappings;
   String groupPassword;
-  bool isServerEncrypted;
-  String protocol;
-  bool dataFingerprintVerification;
-  String encryptionAlgorithm;
   String deviceID;
   String virtualNetworkCardName;
   String certMode;
-  int ctrlPort;
   int mtu;
-  List<int> ports;
-  bool firstLatency;
-  bool noInIpProxy;
   bool rtx;
   bool compress;
   bool fec;
@@ -33,16 +23,6 @@ class NetworkConfig {
   bool noTun;
   bool allowMapping;
   int tunnelPort;
-  List<String> dns;
-  double simulatedPacketLossRate;
-  int simulatedLatency;
-  String punchModel;
-  String useChannelType;
-  String compressor;
-  bool allowWg;
-  String localDev;
-  String localIpv4;
-  bool disableRelay;
   String updatedAt;
 
   NetworkConfig({
@@ -51,27 +31,17 @@ class NetworkConfig {
     required this.token,
     required this.deviceName,
     required this.virtualIPv4,
-    required this.serverAddress,
     List<String>? serverList,
-    List<String>? stunServers,
     List<String>? udpStun,
     List<String>? tcpStun,
     List<String>? inIps,
     List<String>? outIps,
     List<String>? portMappings,
     required this.groupPassword,
-    required this.isServerEncrypted,
-    required this.protocol,
-    required this.dataFingerprintVerification,
-    required this.encryptionAlgorithm,
     required this.deviceID,
     required this.virtualNetworkCardName,
     this.certMode = 'skip',
-    this.ctrlPort = 21233,
     required this.mtu,
-    List<int>? ports,
-    required this.firstLatency,
-    required this.noInIpProxy,
     this.rtx = false,
     this.compress = false,
     this.fec = false,
@@ -80,50 +50,24 @@ class NetworkConfig {
     this.noTun = false,
     bool? allowMapping,
     this.tunnelPort = 0,
-    List<String>? dns,
-    required this.simulatedPacketLossRate,
-    required this.simulatedLatency,
-    required this.punchModel,
-    required this.useChannelType,
-    required this.compressor,
-    required this.allowWg,
-    this.localDev = '',
-    this.localIpv4 = '',
-    this.disableRelay = false,
     this.updatedAt = '',
   })  : serverList = List<String>.from(serverList ?? const []),
-        stunServers = List<String>.from(stunServers ?? const []),
         udpStun = List<String>.from(udpStun ?? const []),
         tcpStun = List<String>.from(tcpStun ?? const []),
         inIps = List<String>.from(inIps ?? const []),
         outIps = List<String>.from(outIps ?? const []),
         portMappings = List<String>.from(portMappings ?? const []),
-        ports = List<int>.from(ports ?? const []),
-        allowMapping = allowMapping ?? ((portMappings?.isNotEmpty) ?? false),
-        dns = List<String>.from(dns ?? const []) {
-    if (this.serverList.isEmpty && serverAddress.isNotEmpty) {
-      this.serverList = [serverAddress];
-    }
-    if (this.serverAddress.isEmpty && this.serverList.isNotEmpty) {
-      this.serverAddress = this.serverList.first;
-    }
-    if (this.udpStun.isEmpty && this.stunServers.isNotEmpty) {
-      this.udpStun = List<String>.from(this.stunServers);
-    }
-    if (this.compress == false && compressor == 'lz4') {
-      this.compress = true;
-    }
-  }
+        allowMapping = allowMapping ?? ((portMappings?.isNotEmpty) ?? false);
 
   String get primaryServerAddress {
     if (serverList.isNotEmpty) {
       return serverList.first;
     }
-    return serverAddress;
+    return '';
   }
 
   String get normalizedProtocol {
-    return _normalizeProtocol(protocol, primaryServerAddress);
+    return _normalizeProtocol(primaryServerAddress);
   }
 
   String get effectiveCertMode {
@@ -138,13 +82,6 @@ class NetworkConfig {
       return normalized;
     }
     return 'skip';
-  }
-
-  String get v2CompatiblePrimaryServerAddress {
-    return _normalizeServerAddress(
-      primaryServerAddress,
-      fallbackProtocol: normalizedProtocol,
-    );
   }
 
   List<String> get v2CompatibleServerList {
@@ -166,17 +103,11 @@ class NetworkConfig {
     if (serverList.isNotEmpty) {
       return List<String>.from(serverList);
     }
-    if (serverAddress.isNotEmpty) {
-      return [serverAddress];
-    }
     return const [];
   }
 
   List<String> get effectiveUdpStun {
-    if (udpStun.isNotEmpty) {
-      return List<String>.from(udpStun);
-    }
-    return List<String>.from(stunServers);
+    return List<String>.from(udpStun);
   }
 
   List<String> get effectiveTcpStun {
@@ -243,89 +174,36 @@ class NetworkConfig {
   }
 
   factory NetworkConfig.fromJson(Map<String, dynamic> json) {
-    final serverList = _stringList(json['server'] ?? json['server_addr']);
-    final serverAddress = _stringValue(
-      json['server_address'],
-      fallback: serverList.isNotEmpty ? serverList.first : '',
-    );
-    final deviceName = _stringValue(
-      json['display_device_name'] ?? json['name'],
-      fallback: _stringValue(json['device_name'], fallback: ''),
-    );
-    final portMappings =
-        _normalizePortMappings(_stringList(json['port_mapping'] ?? json['mapping']));
-    final hasLegacyDisplayName =
-        json.containsKey('display_device_name') || json.containsKey('name');
-    final virtualNetworkCardName = _stringValue(
-      json['tun_name'] ?? (hasLegacyDisplayName ? json['device_name'] : null),
-      fallback: '',
-    );
-    final noPunch = json.containsKey('no_punch')
-        ? _boolValue(json['no_punch'])
-        : _stringValue(json['use_channel'], fallback: 'all') == 'relay';
-    final compress = json.containsKey('compress')
-        ? _boolValue(json['compress'])
-        : _stringValue(json['compressor'], fallback: 'none') == 'lz4';
+    final serverList = _stringList(json['server']);
+    final portMappings = _normalizePortMappings(_stringList(json['port_mapping']));
     final allowMapping = json.containsKey('allow_port_mapping')
         ? _boolValue(json['allow_port_mapping'])
-        : json.containsKey('allow_mapping')
-            ? _boolValue(json['allow_mapping'])
-            : portMappings.isNotEmpty;
+        : portMappings.isNotEmpty;
     return NetworkConfig(
       itemKey: _stringValue(json['itemKey'], fallback: ''),
       configName: _stringValue(json['config_name'], fallback: ''),
-      token: _stringValue(
-        json['network_code'],
-        fallback: _stringValue(json['token'], fallback: ''),
-      ),
-      deviceName: deviceName,
+      token: _stringValue(json['network_code'], fallback: ''),
+      deviceName: _stringValue(json['device_name'], fallback: ''),
       virtualIPv4: _stringValue(json['ip'], fallback: ''),
-      serverAddress: serverAddress,
       serverList: serverList,
-      stunServers: _stringList(json['stun_server']),
       udpStun: _stringList(json['udp_stun']),
       tcpStun: _stringList(json['tcp_stun']),
-      inIps: _stringList(json['in_ips'] ?? json['input']),
-      outIps: _stringList(json['out_ips'] ?? json['output']),
+      inIps: _stringList(json['input']),
+      outIps: _stringList(json['output']),
       portMappings: portMappings,
       groupPassword: _stringValue(json['password'], fallback: ''),
-      isServerEncrypted: _boolValue(json['server_encrypt']),
-      protocol: _stringValue(json['protocol'], fallback: 'UDP'),
-      dataFingerprintVerification: _boolValue(json['finger']),
-      encryptionAlgorithm: _stringValue(
-        json['cipher_model'],
-        fallback: 'aes_gcm',
-      ),
       deviceID: _stringValue(json['device_id'], fallback: ''),
-      virtualNetworkCardName: virtualNetworkCardName,
+      virtualNetworkCardName: _stringValue(json['tun_name'], fallback: ''),
       certMode: _stringValue(json['cert_mode'], fallback: 'skip'),
-      ctrlPort: _intValue(json['ctrl_port'], fallback: 21233),
       mtu: _intValue(json['mtu'], fallback: 1410),
-      ports: _intList(json['ports']),
-      firstLatency: _boolValue(json['first_latency']),
-      noInIpProxy: _boolValue(json['no_proxy'] ?? json['no_nat']),
       rtx: _boolValue(json['rtx']),
-      compress: compress,
+      compress: _boolValue(json['compress']),
       fec: _boolValue(json['fec']),
-      noPunch: noPunch,
-      noNat: _boolValue(json['no_nat'] ?? json['no_proxy']),
+      noPunch: _boolValue(json['no_punch']),
+      noNat: _boolValue(json['no_nat']),
       noTun: _boolValue(json['no_tun']),
       allowMapping: allowMapping,
       tunnelPort: _intValue(json['tunnel_port']),
-      dns: _stringList(json['dns']),
-      simulatedPacketLossRate: _doubleValue(json['packet_loss']),
-      simulatedLatency: _intValue(json['packet_delay']),
-      punchModel: _stringValue(json['punch_model'], fallback: 'all'),
-      useChannelType: noPunch
-          ? 'relay'
-          : _stringValue(json['use_channel'], fallback: 'all'),
-      compressor: compress
-          ? 'lz4'
-          : _stringValue(json['compressor'], fallback: 'none'),
-      allowWg: _boolValue(json['allow_wire_guard']),
-      localDev: _stringValue(json['local_dev'], fallback: ''),
-      localIpv4: _stringValue(json['local_ipv4'], fallback: ''),
-      disableRelay: _boolValue(json['disable_relay']),
       updatedAt: _stringValue(json['updated_at'], fallback: ''),
     );
   }
@@ -349,16 +227,6 @@ class NetworkConfig {
     return value
         .map((item) => item.toString().trim())
         .where((item) => item.isNotEmpty)
-        .toList(growable: false);
-  }
-
-  static List<int> _intList(dynamic value) {
-    if (value is! List) {
-      return const [];
-    }
-    return value
-        .map((item) => _intValue(item))
-        .where((item) => item > 0)
         .toList(growable: false);
   }
 
@@ -411,20 +279,7 @@ class NetworkConfig {
     return fallback;
   }
 
-  static double _doubleValue(dynamic value, {double fallback = 0}) {
-    if (value is double) {
-      return value;
-    }
-    if (value is num) {
-      return value.toDouble();
-    }
-    if (value is String) {
-      return double.tryParse(value.trim()) ?? fallback;
-    }
-    return fallback;
-  }
-
-  static String _normalizeProtocol(String protocol, String serverAddress) {
+  static String _normalizeProtocol(String serverAddress) {
     final normalizedAddress = serverAddress.trim().toLowerCase();
     if (normalizedAddress.startsWith('quic://') ||
         normalizedAddress.startsWith('udp://')) {
@@ -443,21 +298,7 @@ class NetworkConfig {
     if (normalizedAddress.startsWith('dynamic://')) {
       return 'DYNAMIC';
     }
-
-    final upper = protocol.trim().toUpperCase();
-    switch (upper) {
-      case 'TCP':
-        return 'TCP';
-      case 'WSS':
-      case 'WS':
-        return 'WSS';
-      case 'DYNAMIC':
-        return 'DYNAMIC';
-      case 'UDP':
-      case 'QUIC':
-      default:
-        return 'QUIC';
-    }
+    return 'QUIC';
   }
 
   static String _normalizeServerAddress(

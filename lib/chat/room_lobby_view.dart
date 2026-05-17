@@ -68,39 +68,172 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
       animation: chatManager,
       builder: (context, _) {
         _showStatusSnackBarIfNeeded(context);
-        return ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            _buildDebugToolsCard(context),
-            const SizedBox(height: 12),
-            _buildSectionCard(
-              context: context,
-              title: '默认大厅',
-              count: _lobbyConversations.length,
-              child: _buildLobbyConversationList(),
-            ),
-            const SizedBox(height: 12),
-            _buildSectionCard(
-              context: context,
-              title: '房间',
-              count: _roomConversations.length,
-              trailing: TextButton.icon(
-                onPressed: _showCreateRoomDialog,
-                icon: const Icon(Icons.add),
-                label: const Text('创建房间'),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 900;
+            final sections = [
+              _buildSectionCard(
+                context: context,
+                icon: Icons.forum_outlined,
+                title: '默认大厅',
+                subtitle: '每个已连接网络自动创建一个公共大厅',
+                count: _lobbyConversations.length,
+                child: _buildLobbyConversationList(),
               ),
-              child: _buildRoomList(),
-            ),
-            const SizedBox(height: 12),
-            _buildSectionCard(
-              context: context,
-              title: '在线成员',
-              count: _onlinePeers.length,
-              child: _buildOnlinePeerList(),
-            ),
-          ],
+              _buildSectionCard(
+                context: context,
+                icon: Icons.meeting_room_outlined,
+                title: '房间',
+                subtitle: '创建公开房间或邀请成员加入私密房间',
+                count: _roomConversations.length,
+                trailing: FilledButton.icon(
+                  onPressed: _connectedNetworkKeys.isEmpty
+                      ? null
+                      : _showCreateRoomDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('创建房间'),
+                ),
+                child: _buildRoomList(),
+              ),
+              _buildSectionCard(
+                context: context,
+                icon: Icons.people_alt_outlined,
+                title: '在线成员',
+                subtitle: '点击成员发起私信，右键查看更多操作',
+                count: _onlinePeers.length,
+                child: _buildOnlinePeerList(),
+              ),
+            ];
+
+            return ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                _buildOverviewPanel(context),
+                const SizedBox(height: 12),
+                _buildDebugToolsCard(context),
+                const SizedBox(height: 12),
+                if (wide)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          children: [
+                            sections[0],
+                            const SizedBox(height: 12),
+                            sections[2],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: sections[1]),
+                    ],
+                  )
+                else
+                  ...sections.expand((section) => [
+                        section,
+                        const SizedBox(height: 12),
+                      ]),
+              ],
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildOverviewPanel(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasNetwork = _connectedNetworkKeys.isNotEmpty;
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Icon(
+              hasNetwork ? Icons.hub_outlined : Icons.cloud_off_outlined,
+              color: hasNetwork ? colorScheme.primary : colorScheme.outline,
+              size: 28,
+            ),
+            SizedBox(
+              width: 260,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasNetwork ? '聊天室已连接' : '等待组网连接',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    hasNetwork
+                        ? '可创建房间、进入大厅或向在线成员发起私信'
+                        : '连接组网后会自动启用大厅、房间和私信',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            _buildMetricChip(
+              context,
+              icon: Icons.lan_outlined,
+              label: '网络',
+              value: '${_connectedNetworkKeys.length}',
+            ),
+            _buildMetricChip(
+              context,
+              icon: Icons.meeting_room_outlined,
+              label: '房间',
+              value: '${_roomConversations.length}',
+            ),
+            _buildMetricChip(
+              context,
+              icon: Icons.people_alt_outlined,
+              label: '在线',
+              value: '${_onlinePeers.length}',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricChip(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: colorScheme.primary),
+          const SizedBox(width: 8),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(width: 6),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -176,7 +309,9 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
 
   Widget _buildSectionCard({
     required BuildContext context,
+    required IconData icon,
     required String title,
+    required String subtitle,
     required int count,
     required Widget child,
     Widget? trailing,
@@ -191,6 +326,8 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
           children: [
             Row(
               children: [
+                Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -219,6 +356,11 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                 const Spacer(),
                 if (trailing != null) trailing,
               ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
             child,
@@ -522,8 +664,9 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
       return;
     }
     String? selectedNetworkKey = chatManager.preferredNetworkKey(
-      scopedNetworkKey: _scopedNetworkKey,
-    );
+          scopedNetworkKey: _scopedNetworkKey,
+        ) ??
+        connectedNetworks.first;
     bool isPrivate = false;
     final selectedIds = <String>{};
     final nameController = TextEditingController();
@@ -538,79 +681,131 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
             return AlertDialog(
               title: const Text('创建房间'),
               content: SizedBox(
-                width: 420,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (connectedNetworks.length > 1) ...[
-                      DropdownButtonFormField<String>(
-                        value: selectedNetworkKey,
+                width: 460,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.meeting_room_outlined,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '房间会绑定到当前组网，公开房间会向在线成员同步。',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (connectedNetworks.length > 1) ...[
+                        DropdownButtonFormField<String>(
+                          value: selectedNetworkKey,
+                          decoration: const InputDecoration(
+                            labelText: '所属网络',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: connectedNetworks
+                              .map(
+                                (networkKey) => DropdownMenuItem(
+                                  value: networkKey,
+                                  child: Text(
+                                    networkKey,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              selectedNetworkKey = value;
+                              selectedIds.clear();
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(
+                        controller: nameController,
                         decoration: const InputDecoration(
-                          labelText: '所属网络',
+                          labelText: '房间名称',
                           border: OutlineInputBorder(),
                         ),
-                        items: connectedNetworks
-                            .map(
-                              (networkKey) => DropdownMenuItem(
-                                value: networkKey,
-                                child: Text(networkKey),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            selectedNetworkKey = value;
-                            selectedIds.clear();
-                          });
-                        },
                       ),
                       const SizedBox(height: 12),
-                    ],
-                    TextField(
-                      controller: nameController,
-                      decoration: const InputDecoration(
-                        labelText: '房间名称',
-                        border: OutlineInputBorder(),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: isPrivate,
+                        title: const Text('私密房间'),
+                        subtitle: const Text('仅邀请勾选的在线成员，未受邀成员不可见'),
+                        onChanged: (value) => setState(() => isPrivate = value),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: isPrivate,
-                      title: const Text('私密房间'),
-                      subtitle: const Text('私密房间只邀请指定成员'),
-                      onChanged: (value) => setState(() => isPrivate = value),
-                    ),
-                    if (isPrivate) ...[
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        height: 220,
-                        child: ListView(
-                          children: candidates.map((peer) {
-                            return CheckboxListTile(
-                              value: selectedIds.contains(peer.peerId),
-                              title: Text(chatPeerPrimaryName(peer)),
-                              subtitle: Text(
-                                buildMemberPeerSubtitle(
-                                  peer,
-                                  hasMultipleNetworks: _hasMultipleNetworks,
-                                ),
-                              ),
-                              onChanged: (value) {
-                                setState(() {
-                                  if (value == true) {
-                                    selectedIds.add(peer.peerId);
-                                  } else {
-                                    selectedIds.remove(peer.peerId);
-                                  }
-                                });
-                              },
-                            );
-                          }).toList(),
+                      if (isPrivate) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          '邀请成员',
+                          style: Theme.of(context).textTheme.titleSmall,
                         ),
-                      ),
+                        const SizedBox(height: 8),
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 240),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: candidates.isEmpty
+                              ? const Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: Text('当前网络暂无在线成员'),
+                                )
+                              : ListView(
+                                  physics: const ClampingScrollPhysics(),
+                                  shrinkWrap: true,
+                                  children: candidates.map((peer) {
+                                    return CheckboxListTile(
+                                      value:
+                                          selectedIds.contains(peer.peerId),
+                                      title: Text(chatPeerPrimaryName(peer)),
+                                      subtitle: Text(
+                                        buildMemberPeerSubtitle(
+                                          peer,
+                                          hasMultipleNetworks:
+                                              _hasMultipleNetworks,
+                                        ),
+                                      ),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          if (value == true) {
+                                            selectedIds.add(peer.peerId);
+                                          } else {
+                                            selectedIds.remove(peer.peerId);
+                                          }
+                                        });
+                                      },
+                                    );
+                                  }).toList(),
+                                ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               actions: [

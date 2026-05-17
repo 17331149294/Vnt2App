@@ -105,7 +105,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     for (final serverAddress in config.effectiveServerList) {
       _addServerAddressController(
         text: stripScheme(serverAddress),
-        protocol: normalizeCommunicationMethod(config.protocol, serverAddress),
+        protocol: normalizeCommunicationMethod(serverAddress),
         updateState: false,
       );
     }
@@ -126,10 +126,9 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     }
     _groupPasswordController.text = config.groupPassword;
     _communicationMethod = normalizeCommunicationMethod(
-      config.protocol,
       config.effectiveServerList.isNotEmpty
           ? config.effectiveServerList.first
-          : config.serverAddress,
+          : '',
     );
     _deviceIDController.text = config.deviceID;
     _virtualNetworkCardNameController.text = config.virtualNetworkCardName;
@@ -144,7 +143,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     _noTun = config.noTun;
     _allowPortMapping = config.allowMapping;
     setState(() {
-      _builtInIpProxy = config.noInIpProxy ? 'CLOSE' : 'OPEN';
+      _builtInIpProxy = config.noNat ? 'CLOSE' : 'OPEN';
     });
   }
 
@@ -183,17 +182,13 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
           .where((text) => text.isNotEmpty)
           .toList();
       NetworkConfig config = NetworkConfig(
-        itemKey: widget.config?.itemKey ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        itemKey: widget.config?.itemKey ??
+            DateTime.now().millisecondsSinceEpoch.toString(),
         configName: name,
         token: _groupNumberController.text,
         deviceName: _deviceNameController.text,
         virtualIPv4: _virtualIPv4Controller.text,
-        serverAddress: serverList.isNotEmpty ? serverList.first : '',
         serverList: serverList,
-        stunServers: _udpStunServers
-            .map((controller) => controller.text)
-            .where((text) => text.isNotEmpty)
-            .toList(),
         udpStun: _udpStunServers
             .map((controller) => controller.text)
             .where((text) => text.isNotEmpty)
@@ -212,20 +207,12 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
             .toList(),
         portMappings: portMappings,
         groupPassword: _groupPasswordController.text,
-        isServerEncrypted: false,
-        protocol:
-            serverList.isNotEmpty ? _serverProtocolAt(0) : _communicationMethod,
-        dataFingerprintVerification: false,
-        encryptionAlgorithm: 'xor',
         deviceID: _deviceIDController.text,
         virtualNetworkCardName: _virtualNetworkCardNameController.text,
         certMode: _certModeController.text.trim().isEmpty
             ? 'skip'
             : _certModeController.text.trim(),
         mtu: int.tryParse(_mtuController.text) ?? 1410,
-        ports: const [],
-        firstLatency: false,
-        noInIpProxy: _builtInIpProxy == 'CLOSE',
         noNat: _builtInIpProxy == 'CLOSE',
         noPunch: _p2pPunch == 'CLOSE',
         compress: _compressionMethod == 'lz4',
@@ -234,15 +221,6 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         noTun: _noTun,
         allowMapping: _allowPortMapping || portMappings.isNotEmpty,
         tunnelPort: int.tryParse(_tunnelPortController.text.trim()) ?? 0,
-        dns: const [],
-        simulatedPacketLossRate: 0,
-        simulatedLatency: 0,
-        punchModel: 'all',
-        useChannelType: _p2pPunch == 'CLOSE' ? 'relay' : 'all',
-        compressor: _compressionMethod,
-        allowWg: false,
-        localDev: '',
-        disableRelay: false,
       );
       Navigator.pop(context, config);
     } else {
@@ -555,6 +533,11 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                           }
                           return '请输入 skip、standard 或 finger:<64位hex>';
                         },
+                        null,
+                        true,
+                        false,
+                        null,
+                        'skip：跳过证书校验；standard：使用系统证书校验；finger:<64位hex>：校验指定证书指纹',
                       ),
                       const SizedBox(height: 16),
                       _buildTextFormField(
@@ -1058,7 +1041,7 @@ String stripScheme(String input) {
   return input.replaceFirst(pattern, '');
 }
 
-String normalizeCommunicationMethod(String protocol, String serverAddress) {
+String normalizeCommunicationMethod(String serverAddress) {
   final normalizedAddress = serverAddress.trim().toLowerCase();
   if (normalizedAddress.startsWith('quic://') ||
       normalizedAddress.startsWith('udp://')) {
@@ -1078,17 +1061,5 @@ String normalizeCommunicationMethod(String protocol, String serverAddress) {
     return 'DYNAMIC';
   }
 
-  switch (protocol.trim().toUpperCase()) {
-    case 'TCP':
-      return 'TCP';
-    case 'WSS':
-    case 'WS':
-      return 'WSS';
-    case 'DYNAMIC':
-      return 'DYNAMIC';
-    case 'UDP':
-    case 'QUIC':
-    default:
-      return 'QUIC';
-  }
+  return 'QUIC';
 }

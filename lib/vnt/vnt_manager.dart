@@ -134,7 +134,7 @@ class VntBox {
     final compatibleServerList = config.v2CompatibleServerList;
     final compatibleServerAddress = compatibleServerList.isNotEmpty
         ? compatibleServerList.join('\n')
-        : config.v2CompatiblePrimaryServerAddress;
+        : '';
     var vntConfig = VntConfig(
         serverAddr: compatibleServerAddress
             .split('\n')
