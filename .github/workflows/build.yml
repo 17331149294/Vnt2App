@@ -11,6 +11,19 @@ on:
         required: false
         type: boolean
         default: false
+      release_version:
+        description: '发布版本号，留空则只构建不发布'
+        required: false
+        type: string
+        default: ''
+      release_type:
+        description: '发布类型'
+        required: false
+        type: choice
+        default: rel
+        options:
+          - rel
+          - pre
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -507,17 +520,49 @@ jobs:
 
   deploy:
     needs: build
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.release_version != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-      - name: List
-        run: find ./artifacts
+      - name: 准备发布文件
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
 
+          copy_asset() {
+            local source="$1"
+            local target="$2"
+            if [ -f "$source" ]; then
+              cp "$source" "release-assets/$target"
+              echo "已准备: $target"
+            else
+              echo "跳过，构建产物不存在: $source"
+            fi
+          }
 
+          copy_asset "artifacts/vnt2App-android/vnt2_app-android.apk" "vnt2_app-android.apk"
+          copy_asset "artifacts/vnt2App-linux-x86_64/vnt2_app-linux-x86_64.AppImage" "vnt2_app-linux-x86_64.AppImage"
+          copy_asset "artifacts/vnt2App-IOS/vnt2_app.ipa" "vnt2_app-ios.ipa"
+          copy_asset "artifacts/vnt2App-macOS/vnt2_APP.dmg" "vnt2_app-mac.dmg"
+          copy_asset "artifacts/vnt2App-windows/vnt2_app-windows.zip" "vnt2_app-windows.zip"
 
+          echo "发布文件列表:"
+          find release-assets -maxdepth 1 -type f -print | sort
+          if ! find release-assets -maxdepth 1 -type f | grep -q .; then
+            echo "没有可发布的成功构建产物"
+            exit 1
+          fi
 
-
-
+      - name: 发布 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(inputs.release_version, 'v') && inputs.release_version || format('v{0}', inputs.release_version) }}
+          name: ${{ format('VNT2 App {0}', startsWith(inputs.release_version, 'v') && inputs.release_version || format('v{0}', inputs.release_version)) }}
+          body: ${{ format('自动发布 {0}（{1}），包含本次 workflow 中构建成功的平台产物。', startsWith(inputs.release_version, 'v') && inputs.release_version || format('v{0}', inputs.release_version), inputs.release_type) }}
+          prerelease: ${{ inputs.release_type == 'pre' }}
+          make_latest: ${{ inputs.release_type == 'rel' }}
+          files: release-assets/*

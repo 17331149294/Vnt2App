@@ -509,7 +509,11 @@ fn convert_to_core_config(vnt_config: &VntConfig) -> anyhow::Result<(CoreConfig,
 
 fn parse_server_addresses(raw: &[String]) -> anyhow::Result<Vec<ProtocolAddress>> {
     let mut addresses = Vec::new();
-    for part in raw.iter().map(str::trim).filter(|value| !value.is_empty()) {
+    for part in raw
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
         let parsed = ProtocolAddress::from_str(part)
             .map_err(|err| anyhow!("无效服务器地址 {}: {}", part, err))?;
         addresses.push(parsed);
@@ -995,7 +999,7 @@ pub enum RustErrorType {
     PasswordError,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RustRoute {
     pub protocol: String,
     pub addr: String,

@@ -6,6 +6,7 @@ import 'package:vnt2_app/theme/app_theme.dart';
 import 'package:vnt2_app/vnt/vnt_manager.dart';
 import 'package:vnt2_app/data_persistence.dart';
 import 'package:vnt2_app/network_config.dart';
+import 'package:vnt2_app/src/rust/api/vnt_api.dart';
 import 'package:vnt2_app/utils/toast_utils.dart';
 import 'package:vnt2_app/utils/responsive_utils.dart';
 import 'package:fl_chart/fl_chart.dart';
