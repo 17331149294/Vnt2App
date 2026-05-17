@@ -1700,8 +1700,8 @@ impl SseDecode for crate::api::vnt_api::RustErrorType {
             5 => crate::api::vnt_api::RustErrorType::LocalIpExists,
             6 => crate::api::vnt_api::RustErrorType::FailedToCreateDevice,
             7 => crate::api::vnt_api::RustErrorType::NetworkError,
-            8 => crate::api::vnt_api::RustErrorType::Warn,
-            9 => crate::api::vnt_api::RustErrorType::Unknown,
+            8 => crate::api::vnt_api::RustErrorType::Unknown,
+            9 => crate::api::vnt_api::RustErrorType::PasswordError,
             _ => unreachable!("Invalid variant for RustErrorType: {}", inner),
         };
     }
@@ -1824,63 +1824,51 @@ impl SseDecode for usize {
 impl SseDecode for crate::api::vnt_api::VntConfig {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_tap = <bool>::sse_decode(deserializer);
-        let mut var_token = <String>::sse_decode(deserializer);
+        let mut var_serverAddr = <Vec<String>>::sse_decode(deserializer);
+        let mut var_certMode = <String>::sse_decode(deserializer);
+        let mut var_networkCode = <String>::sse_decode(deserializer);
         let mut var_deviceId = <String>::sse_decode(deserializer);
-        let mut var_name = <String>::sse_decode(deserializer);
-        let mut var_serverAddressStr = <String>::sse_decode(deserializer);
-        let mut var_nameServers = <Vec<String>>::sse_decode(deserializer);
-        let mut var_stunServer = <Vec<String>>::sse_decode(deserializer);
-        let mut var_inIps = <Vec<(u32, u32, String)>>::sse_decode(deserializer);
-        let mut var_outIps = <Vec<(u32, u32)>>::sse_decode(deserializer);
-        let mut var_password = <Option<String>>::sse_decode(deserializer);
-        let mut var_mtu = <Option<u32>>::sse_decode(deserializer);
+        let mut var_deviceName = <String>::sse_decode(deserializer);
+        let mut var_tunName = <Option<String>>::sse_decode(deserializer);
         let mut var_ip = <Option<String>>::sse_decode(deserializer);
-        let mut var_noProxy = <bool>::sse_decode(deserializer);
-        let mut var_serverEncrypt = <bool>::sse_decode(deserializer);
-        let mut var_cipherModel = <String>::sse_decode(deserializer);
-        let mut var_finger = <bool>::sse_decode(deserializer);
-        let mut var_punchModel = <String>::sse_decode(deserializer);
-        let mut var_ports = <Option<Vec<u16>>>::sse_decode(deserializer);
-        let mut var_firstLatency = <bool>::sse_decode(deserializer);
-        let mut var_deviceName = <Option<String>>::sse_decode(deserializer);
-        let mut var_useChannelType = <String>::sse_decode(deserializer);
-        let mut var_packetLossRate = <Option<f64>>::sse_decode(deserializer);
-        let mut var_packetDelay = <u32>::sse_decode(deserializer);
-        let mut var_portMappingList = <Vec<String>>::sse_decode(deserializer);
-        let mut var_compressor = <String>::sse_decode(deserializer);
-        let mut var_allowWireGuard = <bool>::sse_decode(deserializer);
-        let mut var_localDev = <Option<String>>::sse_decode(deserializer);
-        let mut var_disableRelay = <bool>::sse_decode(deserializer);
+        let mut var_password = <Option<String>>::sse_decode(deserializer);
+        let mut var_noPunch = <bool>::sse_decode(deserializer);
+        let mut var_compress = <bool>::sse_decode(deserializer);
+        let mut var_rtx = <bool>::sse_decode(deserializer);
+        let mut var_fec = <bool>::sse_decode(deserializer);
+        let mut var_input = <Vec<String>>::sse_decode(deserializer);
+        let mut var_output = <Vec<String>>::sse_decode(deserializer);
+        let mut var_noNat = <bool>::sse_decode(deserializer);
+        let mut var_noTun = <bool>::sse_decode(deserializer);
+        let mut var_mtu = <Option<u32>>::sse_decode(deserializer);
+        let mut var_portMapping = <Vec<String>>::sse_decode(deserializer);
+        let mut var_allowPortMapping = <bool>::sse_decode(deserializer);
+        let mut var_udpStun = <Vec<String>>::sse_decode(deserializer);
+        let mut var_tcpStun = <Vec<String>>::sse_decode(deserializer);
+        let mut var_tunnelPort = <Option<u16>>::sse_decode(deserializer);
         return crate::api::vnt_api::VntConfig {
-            tap: var_tap,
-            token: var_token,
+            server_addr: var_serverAddr,
+            cert_mode: var_certMode,
+            network_code: var_networkCode,
             device_id: var_deviceId,
-            name: var_name,
-            server_address_str: var_serverAddressStr,
-            name_servers: var_nameServers,
-            stun_server: var_stunServer,
-            in_ips: var_inIps,
-            out_ips: var_outIps,
-            password: var_password,
-            mtu: var_mtu,
-            ip: var_ip,
-            no_proxy: var_noProxy,
-            server_encrypt: var_serverEncrypt,
-            cipher_model: var_cipherModel,
-            finger: var_finger,
-            punch_model: var_punchModel,
-            ports: var_ports,
-            first_latency: var_firstLatency,
             device_name: var_deviceName,
-            use_channel_type: var_useChannelType,
-            packet_loss_rate: var_packetLossRate,
-            packet_delay: var_packetDelay,
-            port_mapping_list: var_portMappingList,
-            compressor: var_compressor,
-            allow_wire_guard: var_allowWireGuard,
-            local_dev: var_localDev,
-            disable_relay: var_disableRelay,
+            tun_name: var_tunName,
+            ip: var_ip,
+            password: var_password,
+            no_punch: var_noPunch,
+            compress: var_compress,
+            rtx: var_rtx,
+            fec: var_fec,
+            input: var_input,
+            output: var_output,
+            no_nat: var_noNat,
+            no_tun: var_noTun,
+            mtu: var_mtu,
+            port_mapping: var_portMapping,
+            allow_port_mapping: var_allowPortMapping,
+            udp_stun: var_udpStun,
+            tcp_stun: var_tcpStun,
+            tunnel_port: var_tunnelPort,
         };
     }
 }
@@ -2090,8 +2078,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::vnt_api::RustErrorType {
             Self::LocalIpExists => 5.into_dart(),
             Self::FailedToCreateDevice => 6.into_dart(),
             Self::NetworkError => 7.into_dart(),
-            Self::Warn => 8.into_dart(),
-            Self::Unknown => 9.into_dart(),
+            Self::Unknown => 8.into_dart(),
+            Self::PasswordError => 9.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -2223,34 +2211,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::vnt_api::RustRoute>
 impl flutter_rust_bridge::IntoDart for crate::api::vnt_api::VntConfig {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
-            self.tap.into_into_dart().into_dart(),
-            self.token.into_into_dart().into_dart(),
+            self.server_addr.into_into_dart().into_dart(),
+            self.cert_mode.into_into_dart().into_dart(),
+            self.network_code.into_into_dart().into_dart(),
             self.device_id.into_into_dart().into_dart(),
-            self.name.into_into_dart().into_dart(),
-            self.server_address_str.into_into_dart().into_dart(),
-            self.name_servers.into_into_dart().into_dart(),
-            self.stun_server.into_into_dart().into_dart(),
-            self.in_ips.into_into_dart().into_dart(),
-            self.out_ips.into_into_dart().into_dart(),
-            self.password.into_into_dart().into_dart(),
-            self.mtu.into_into_dart().into_dart(),
-            self.ip.into_into_dart().into_dart(),
-            self.no_proxy.into_into_dart().into_dart(),
-            self.server_encrypt.into_into_dart().into_dart(),
-            self.cipher_model.into_into_dart().into_dart(),
-            self.finger.into_into_dart().into_dart(),
-            self.punch_model.into_into_dart().into_dart(),
-            self.ports.into_into_dart().into_dart(),
-            self.first_latency.into_into_dart().into_dart(),
             self.device_name.into_into_dart().into_dart(),
-            self.use_channel_type.into_into_dart().into_dart(),
-            self.packet_loss_rate.into_into_dart().into_dart(),
-            self.packet_delay.into_into_dart().into_dart(),
-            self.port_mapping_list.into_into_dart().into_dart(),
-            self.compressor.into_into_dart().into_dart(),
-            self.allow_wire_guard.into_into_dart().into_dart(),
-            self.local_dev.into_into_dart().into_dart(),
-            self.disable_relay.into_into_dart().into_dart(),
+            self.tun_name.into_into_dart().into_dart(),
+            self.ip.into_into_dart().into_dart(),
+            self.password.into_into_dart().into_dart(),
+            self.no_punch.into_into_dart().into_dart(),
+            self.compress.into_into_dart().into_dart(),
+            self.rtx.into_into_dart().into_dart(),
+            self.fec.into_into_dart().into_dart(),
+            self.input.into_into_dart().into_dart(),
+            self.output.into_into_dart().into_dart(),
+            self.no_nat.into_into_dart().into_dart(),
+            self.no_tun.into_into_dart().into_dart(),
+            self.mtu.into_into_dart().into_dart(),
+            self.port_mapping.into_into_dart().into_dart(),
+            self.allow_port_mapping.into_into_dart().into_dart(),
+            self.udp_stun.into_into_dart().into_dart(),
+            self.tcp_stun.into_into_dart().into_dart(),
+            self.tunnel_port.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2624,8 +2606,8 @@ impl SseEncode for crate::api::vnt_api::RustErrorType {
                 crate::api::vnt_api::RustErrorType::LocalIpExists => 5,
                 crate::api::vnt_api::RustErrorType::FailedToCreateDevice => 6,
                 crate::api::vnt_api::RustErrorType::NetworkError => 7,
-                crate::api::vnt_api::RustErrorType::Warn => 8,
-                crate::api::vnt_api::RustErrorType::Unknown => 9,
+                crate::api::vnt_api::RustErrorType::Unknown => 8,
+                crate::api::vnt_api::RustErrorType::PasswordError => 9,
                 _ => {
                     unimplemented!("");
                 }
@@ -2728,34 +2710,28 @@ impl SseEncode for usize {
 impl SseEncode for crate::api::vnt_api::VntConfig {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <bool>::sse_encode(self.tap, serializer);
-        <String>::sse_encode(self.token, serializer);
+        <Vec<String>>::sse_encode(self.server_addr, serializer);
+        <String>::sse_encode(self.cert_mode, serializer);
+        <String>::sse_encode(self.network_code, serializer);
         <String>::sse_encode(self.device_id, serializer);
-        <String>::sse_encode(self.name, serializer);
-        <String>::sse_encode(self.server_address_str, serializer);
-        <Vec<String>>::sse_encode(self.name_servers, serializer);
-        <Vec<String>>::sse_encode(self.stun_server, serializer);
-        <Vec<(u32, u32, String)>>::sse_encode(self.in_ips, serializer);
-        <Vec<(u32, u32)>>::sse_encode(self.out_ips, serializer);
-        <Option<String>>::sse_encode(self.password, serializer);
-        <Option<u32>>::sse_encode(self.mtu, serializer);
+        <String>::sse_encode(self.device_name, serializer);
+        <Option<String>>::sse_encode(self.tun_name, serializer);
         <Option<String>>::sse_encode(self.ip, serializer);
-        <bool>::sse_encode(self.no_proxy, serializer);
-        <bool>::sse_encode(self.server_encrypt, serializer);
-        <String>::sse_encode(self.cipher_model, serializer);
-        <bool>::sse_encode(self.finger, serializer);
-        <String>::sse_encode(self.punch_model, serializer);
-        <Option<Vec<u16>>>::sse_encode(self.ports, serializer);
-        <bool>::sse_encode(self.first_latency, serializer);
-        <Option<String>>::sse_encode(self.device_name, serializer);
-        <String>::sse_encode(self.use_channel_type, serializer);
-        <Option<f64>>::sse_encode(self.packet_loss_rate, serializer);
-        <u32>::sse_encode(self.packet_delay, serializer);
-        <Vec<String>>::sse_encode(self.port_mapping_list, serializer);
-        <String>::sse_encode(self.compressor, serializer);
-        <bool>::sse_encode(self.allow_wire_guard, serializer);
-        <Option<String>>::sse_encode(self.local_dev, serializer);
-        <bool>::sse_encode(self.disable_relay, serializer);
+        <Option<String>>::sse_encode(self.password, serializer);
+        <bool>::sse_encode(self.no_punch, serializer);
+        <bool>::sse_encode(self.compress, serializer);
+        <bool>::sse_encode(self.rtx, serializer);
+        <bool>::sse_encode(self.fec, serializer);
+        <Vec<String>>::sse_encode(self.input, serializer);
+        <Vec<String>>::sse_encode(self.output, serializer);
+        <bool>::sse_encode(self.no_nat, serializer);
+        <bool>::sse_encode(self.no_tun, serializer);
+        <Option<u32>>::sse_encode(self.mtu, serializer);
+        <Vec<String>>::sse_encode(self.port_mapping, serializer);
+        <bool>::sse_encode(self.allow_port_mapping, serializer);
+        <Vec<String>>::sse_encode(self.udp_stun, serializer);
+        <Vec<String>>::sse_encode(self.tcp_stun, serializer);
+        <Option<u16>>::sse_encode(self.tunnel_port, serializer);
     }
 }
 

@@ -20,7 +20,7 @@ import top.wherewego.vnt2_app.vpn.DeviceConfig;
 import top.wherewego.vnt2_app.vpn.IpUtils;
 
 public class FlutterMethodChannel {
-    private static final String CHANNEL = "top.wherewego.vnt/vpn";
+    private static final String CHANNEL = "top.wherewego.vnt2/vpn";
 
     private volatile static MethodChannel channel;
     private volatile static MethodChannel.Result pendingResult;

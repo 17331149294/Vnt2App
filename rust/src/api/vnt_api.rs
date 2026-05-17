@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,7 +8,6 @@ use anyhow::{anyhow, Context};
 use flutter_rust_bridge::DartFnFuture;
 use ipnet::Ipv4Net;
 use rust_p2p_core::nat::NatInfo;
-use serde::Deserialize;
 use tokio::runtime::{Handle, Runtime};
 use vnt_core::api::VntApi as CoreVntApi;
 use vnt_core::context::config::Config as CoreConfig;
@@ -85,34 +85,28 @@ pub fn init_log_with_path(log_dir: String, config_path: String) -> anyhow::Resul
 
 #[derive(Clone, Debug)]
 pub struct VntConfig {
-    pub tap: bool,
-    pub token: String,
+    pub server_addr: Vec<String>,
+    pub cert_mode: String,
+    pub network_code: String,
     pub device_id: String,
-    pub name: String,
-    pub server_address_str: String,
-    pub name_servers: Vec<String>,
-    pub stun_server: Vec<String>,
-    pub in_ips: Vec<(u32, u32, String)>,
-    pub out_ips: Vec<(u32, u32)>,
-    pub password: Option<String>,
-    pub mtu: Option<u32>,
+    pub device_name: String,
+    pub tun_name: Option<String>,
     pub ip: Option<String>,
-    pub no_proxy: bool,
-    pub server_encrypt: bool,
-    pub cipher_model: String,
-    pub finger: bool,
-    pub punch_model: String,
-    pub ports: Option<Vec<u16>>,
-    pub first_latency: bool,
-    pub device_name: Option<String>,
-    pub use_channel_type: String,
-    pub packet_loss_rate: Option<f64>,
-    pub packet_delay: u32,
-    pub port_mapping_list: Vec<String>,
-    pub compressor: String,
-    pub allow_wire_guard: bool,
-    pub local_dev: Option<String>,
-    pub disable_relay: bool,
+    pub password: Option<String>,
+    pub no_punch: bool,
+    pub compress: bool,
+    pub rtx: bool,
+    pub fec: bool,
+    pub input: Vec<String>,
+    pub output: Vec<String>,
+    pub no_nat: bool,
+    pub no_tun: bool,
+    pub mtu: Option<u32>,
+    pub port_mapping: Vec<String>,
+    pub allow_port_mapping: bool,
+    pub udp_stun: Vec<String>,
+    pub tcp_stun: Vec<String>,
+    pub tunnel_port: Option<u16>,
 }
 
 pub struct VntApi {
@@ -188,6 +182,38 @@ impl VntApi {
         if self.is_stopped() {
             return vec![];
         }
+        if let Ok(list) = self
+            ._runtime
+            .block_on(self.core_api.server_rpc().client_list())
+        {
+            if !list.list.is_empty() {
+                let local_key_sign = self
+                    .core_api
+                    .get_config()
+                    .and_then(|config| config.key_sign());
+                return list
+                    .list
+                    .into_iter()
+                    .map(|client| {
+                        let client_key_sign = client.key_sign.filter(|value| !value.is_empty());
+                        RustPeerClientInfo {
+                            virtual_ip: Ipv4Addr::from(client.ip).to_string(),
+                            name: if client.name.trim().is_empty() {
+                                Ipv4Addr::from(client.ip).to_string()
+                            } else {
+                                client.name
+                            },
+                            status: if client.online {
+                                "Online".to_string()
+                            } else {
+                                "Offline".to_string()
+                            },
+                            client_secret: client_key_sign != local_key_sign,
+                        }
+                    })
+                    .collect();
+            }
+        }
         self.core_api
             .client_ips()
             .into_iter()
@@ -209,19 +235,7 @@ impl VntApi {
         if self.is_stopped() {
             return vec![];
         }
-        self.core_api
-            .client_ips()
-            .into_iter()
-            .map(|client| {
-                let ip = client.ip;
-                (
-                    ip.to_string(),
-                    build_route_from_api(&self.core_api, ip)
-                        .into_iter()
-                        .collect(),
-                )
-            })
-            .collect()
+        build_route_list_from_api(&self.core_api)
     }
 
     #[flutter_rust_bridge::frb(sync)]
@@ -414,37 +428,27 @@ async fn start_network(
 }
 
 fn convert_to_core_config(vnt_config: &VntConfig) -> anyhow::Result<(CoreConfig, Vec<String>)> {
-    let server_addr = parse_server_addresses(&vnt_config.server_address_str)?;
+    let server_addr = parse_server_addresses(&vnt_config.server_addr)?;
     let connect_targets: Vec<String> = server_addr
         .iter()
         .map(|address| address.to_string())
         .collect();
-    let bridge_options = decode_bridge_options(&vnt_config.cipher_model)?;
-    let cert_mode = decode_cert_mode(bridge_options.cert_mode.as_deref().unwrap_or("skip"))?;
+    let cert_mode = decode_cert_mode(&vnt_config.cert_mode)?;
 
     let input = vnt_config
-        .in_ips
+        .input
         .iter()
-        .map(|(dest, mask, ip)| {
-            Ok(NetInput {
-                net: Ipv4Net::new(Ipv4Addr::from(*dest), prefix_from_mask(*mask)?)
-                    .context("解析 in_ips 网络段失败")?,
-                target_ip: Ipv4Addr::from_str(ip).context("解析 in_ips 目标 IP 失败")?,
-            })
-        })
+        .map(|value| NetInput::from_str(value).map_err(anyhow::Error::msg))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     let output = vnt_config
-        .out_ips
+        .output
         .iter()
-        .map(|(dest, mask)| {
-            Ipv4Net::new(Ipv4Addr::from(*dest), prefix_from_mask(*mask)?)
-                .context("解析 out_ips 网络段失败")
-        })
+        .map(|value| Ipv4Net::from_str(value).context("解析 output 网络段失败"))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     let port_mapping = vnt_config
-        .port_mapping_list
+        .port_mapping
         .iter()
         .map(|value| PortMapping::from_str(value).map_err(anyhow::Error::msg))
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -456,39 +460,23 @@ fn convert_to_core_config(vnt_config: &VntConfig) -> anyhow::Result<(CoreConfig,
         _ => None,
     };
 
-    let compressor = vnt_config.compressor.trim().to_lowercase();
-    let use_channel_type = vnt_config.use_channel_type.trim().to_lowercase();
     let device_id = if vnt_config.device_id.trim().is_empty() {
         vnt_core::utils::device_id::get_device_id().context("生成 VNT 2.0 device_id 失败")?
     } else {
         vnt_config.device_id.trim().to_string()
     };
-    let udp_stun = normalize_stun_servers(
-        if bridge_options.udp_stun.is_empty() {
-            vnt_config.stun_server.clone()
-        } else {
-            bridge_options.udp_stun.clone()
-        },
-        3478,
-    );
-    let tcp_stun = normalize_stun_servers(
-        if bridge_options.tcp_stun.is_empty() {
-            udp_stun.clone()
-        } else {
-            bridge_options.tcp_stun.clone()
-        },
-        443,
-    );
+    let udp_stun = normalize_stun_servers(vnt_config.udp_stun.clone(), 3478);
+    let tcp_stun = normalize_stun_servers(vnt_config.tcp_stun.clone(), 443);
 
     Ok((
         CoreConfig {
             server_addr,
             cert_mode,
-            network_code: vnt_config.token.trim().to_string(),
+            network_code: vnt_config.network_code.trim().to_string(),
             device_id,
-            device_name: vnt_config.name.trim().to_string(),
+            device_name: vnt_config.device_name.trim().to_string(),
             tun_name: vnt_config
-                .device_name
+                .tun_name
                 .as_ref()
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty()),
@@ -498,36 +486,31 @@ fn convert_to_core_config(vnt_config: &VntConfig) -> anyhow::Result<(CoreConfig,
                 .as_ref()
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty()),
-            no_punch: use_channel_type == "relay",
-            compress: compressor != "none",
-            rtx: bridge_options.rtx,
-            fec: bridge_options.fec,
+            no_punch: vnt_config.no_punch,
+            compress: vnt_config.compress,
+            rtx: vnt_config.rtx,
+            fec: vnt_config.fec,
             input,
             output,
-            no_nat: vnt_config.no_proxy,
-            no_tun: bridge_options.no_tun,
+            no_nat: vnt_config.no_nat,
+            no_tun: vnt_config.no_tun,
             mtu: vnt_config
                 .mtu
                 .map(|value| value.min(u16::MAX as u32) as u16),
             port_mapping,
-            allow_port_mapping: bridge_options.allow_mapping,
+            allow_port_mapping: vnt_config.allow_port_mapping,
             udp_stun,
             tcp_stun,
-            tunnel_port: bridge_options.tunnel_port,
+            tunnel_port: vnt_config.tunnel_port,
         },
         connect_targets,
     ))
 }
 
-fn parse_server_addresses(raw: &str) -> anyhow::Result<Vec<ProtocolAddress>> {
+fn parse_server_addresses(raw: &[String]) -> anyhow::Result<Vec<ProtocolAddress>> {
     let mut addresses = Vec::new();
-    for part in raw
-        .split(['\n', '\r', ',', ';'])
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let normalized = normalize_server_address_legacy(part);
-        let parsed = ProtocolAddress::from_str(&normalized)
+    for part in raw.iter().map(str::trim).filter(|value| !value.is_empty()) {
+        let parsed = ProtocolAddress::from_str(part)
             .map_err(|err| anyhow!("无效服务器地址 {}: {}", part, err))?;
         addresses.push(parsed);
     }
@@ -537,73 +520,8 @@ fn parse_server_addresses(raw: &str) -> anyhow::Result<Vec<ProtocolAddress>> {
     Ok(addresses)
 }
 
-fn normalize_server_address_legacy(raw: &str) -> String {
-    let address = raw.trim();
-    let lower = address.to_lowercase();
-    if let Some(value) = lower.strip_prefix("txt:") {
-        return format!("dynamic://{}", value);
-    }
-    if lower.starts_with("udp://") {
-        return format!("quic://{}", &address[6..]);
-    }
-    if lower.starts_with("ws://") {
-        return format!("wss://{}", &address[5..]);
-    }
-    if address.contains("://") {
-        return address.to_string();
-    }
-    format!("quic://{}", address)
-}
-
 fn decode_cert_mode(payload: &str) -> anyhow::Result<CertValidationMode> {
     CertValidationMode::from_str(payload.trim()).map_err(anyhow::Error::msg)
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct BridgeOptions {
-    #[serde(default)]
-    cert_mode: Option<String>,
-    #[serde(default)]
-    rtx: bool,
-    #[serde(default)]
-    fec: bool,
-    #[serde(default)]
-    no_tun: bool,
-    #[serde(default)]
-    allow_mapping: bool,
-    #[serde(default)]
-    udp_stun: Vec<String>,
-    #[serde(default)]
-    tcp_stun: Vec<String>,
-    #[serde(default)]
-    tunnel_port: Option<u16>,
-}
-
-fn decode_bridge_options(payload: &str) -> anyhow::Result<BridgeOptions> {
-    const JSON_PREFIX: &str = "__vnt_bridge_json__=";
-    const LEGACY_PREFIX: &str = "__vnt_bridge_cert_mode__=";
-    const LEGACY_SPLITTER: &str = ";;__vnt_bridge_cipher_model__=";
-
-    if let Some(raw) = payload.strip_prefix(JSON_PREFIX) {
-        return serde_json::from_str(raw).context("解析 2.0 bridge payload 失败");
-    }
-
-    if let Some(rest) = payload.strip_prefix(LEGACY_PREFIX) {
-        let cert_mode = if let Some((mode, _legacy_cipher)) = rest.split_once(LEGACY_SPLITTER) {
-            mode.trim()
-        } else {
-            rest.trim()
-        };
-        return Ok(BridgeOptions {
-            cert_mode: Some(cert_mode.to_string()),
-            ..BridgeOptions::default()
-        });
-    }
-
-    Ok(BridgeOptions {
-        cert_mode: Some("skip".to_string()),
-        ..BridgeOptions::default()
-    })
 }
 
 fn normalize_stun_servers(entries: Vec<String>, default_port: u16) -> Vec<String> {
@@ -623,31 +541,7 @@ fn normalize_stun_servers(entries: Vec<String>, default_port: u16) -> Vec<String
         .collect()
 }
 
-fn prefix_from_mask(mask: u32) -> anyhow::Result<u8> {
-    let prefix = mask.count_ones() as u8;
-    let rebuilt = if prefix == 0 {
-        0
-    } else {
-        u32::MAX << (32 - prefix)
-    };
-    if rebuilt != mask {
-        return Err(anyhow!("非法网络掩码: {mask}"));
-    }
-    Ok(prefix)
-}
-
-fn looks_like_ipv4(value: &str) -> bool {
-    let parts: Vec<&str> = value.trim().split('.').collect();
-    if parts.len() != 4 {
-        return false;
-    }
-    parts.iter().all(|part| part.parse::<u8>().is_ok())
-}
-
 fn total_traffic(api: &CoreVntApi, upstream: bool) -> u64 {
-    if api.server_node_list().is_empty() {
-        return 0;
-    }
     api.all_traffic_info()
         .into_iter()
         .map(|info| {
@@ -688,25 +582,130 @@ fn current_device_from_api(api: &CoreVntApi) -> RustCurrentDeviceInfo {
     }
 }
 
+macro_rules! rust_route_from_core_route {
+    ($route:expr) => {{
+        let metric = $route.metric();
+        RustRoute {
+            protocol: if $route.is_direct() {
+                "P2P".to_string()
+            } else {
+                "ClientRelay".to_string()
+            },
+            addr: $route.route_key().addr().to_string(),
+            metric,
+            rt: i64::from($route.rtt()),
+        }
+    }};
+}
+
 fn build_route_from_api(api: &CoreVntApi, ip: Ipv4Addr) -> Option<RustRoute> {
-    let is_direct = api.is_direct(&ip);
-    let rt = api.get_rtt(&ip).unwrap_or(0);
-    let server_nodes = api.server_node_list();
-    let server_addr = server_nodes
+    if api.network().map(|network| network.gateway) == Some(ip) {
+        return build_server_route_from_api(api);
+    }
+
+    if !api
+        .client_ips()
         .iter()
-        .find(|node| node.connected)
-        .or_else(|| server_nodes.first())
-        .map(|node| node.server_addr.to_string())
-        .unwrap_or_else(|| ip.to_string());
+        .any(|client| client.ip == ip && client.online)
+    {
+        return None;
+    }
+
+    api.find_route(&ip)
+        .map(|route| rust_route_from_core_route!(route))
+        .or_else(|| build_server_relay_route_from_api(api, ip))
+}
+
+fn build_route_list_from_api(api: &CoreVntApi) -> Vec<(String, Vec<RustRoute>)> {
+    let mut route_list = Vec::new();
+    if let Some(server_route) = build_server_route_from_api(api) {
+        route_list.push(("服务器".to_string(), vec![server_route]));
+    }
+
+    let online_clients: HashSet<Ipv4Addr> = api
+        .client_ips()
+        .into_iter()
+        .filter(|client| client.online)
+        .map(|client| client.ip)
+        .collect();
+    if online_clients.is_empty() {
+        return route_list;
+    }
+
+    let route_table: HashMap<Ipv4Addr, Vec<RustRoute>> = api
+        .route_table()
+        .into_iter()
+        .filter(|(ip, _)| online_clients.contains(ip))
+        .map(|(ip, routes)| {
+            (
+                ip,
+                routes
+                    .into_iter()
+                    .map(|route| rust_route_from_core_route!(route))
+                    .collect(),
+            )
+        })
+        .collect();
+
+    let mut client_ips: Vec<Ipv4Addr> = online_clients.into_iter().collect();
+    client_ips.sort();
+    for ip in client_ips {
+        let routes = route_table
+            .get(&ip)
+            .filter(|routes| !routes.is_empty())
+            .cloned()
+            .or_else(|| build_server_relay_route_from_api(api, ip).map(|route| vec![route]))
+            .unwrap_or_default();
+        if !routes.is_empty() {
+            route_list.push((ip.to_string(), routes));
+        }
+    }
+    route_list
+}
+
+fn build_server_route_from_api(api: &CoreVntApi) -> Option<RustRoute> {
+    let server_nodes = api.server_node_list();
+    let server_node = server_nodes
+        .iter()
+        .filter(|node| node.connected)
+        .min_by_key(|node| node.rtt.unwrap_or(u32::MAX))
+        .or_else(|| server_nodes.first())?;
     Some(RustRoute {
-        protocol: if is_direct {
-            "P2P".to_string()
+        protocol: if server_node.connected {
+            "Server".to_string()
         } else {
-            "Relay".to_string()
+            "ServerConnecting".to_string()
         },
-        addr: server_addr,
-        metric: if is_direct { 1 } else { 2 },
-        rt: i64::from(rt),
+        addr: server_node.server_addr.to_string(),
+        metric: 0,
+        rt: i64::from(server_node.rtt.unwrap_or(0)),
+    })
+}
+
+fn build_server_relay_route_from_api(api: &CoreVntApi, ip: Ipv4Addr) -> Option<RustRoute> {
+    let server_nodes = api.server_node_list();
+    let server_node = server_nodes
+        .iter()
+        .filter(|node| {
+            node.connected
+                && node
+                    .client_map
+                    .get(&ip)
+                    .map(|client| client.online)
+                    .unwrap_or(false)
+        })
+        .min_by_key(|node| node.rtt.unwrap_or(u32::MAX))
+        .or_else(|| {
+            server_nodes
+                .iter()
+                .filter(|node| node.connected)
+                .min_by_key(|node| node.rtt.unwrap_or(u32::MAX))
+        })?;
+    Some(RustRoute {
+        protocol: "ServerRelay".to_string(),
+        addr: server_node.server_addr.to_string(),
+        metric: 2,
+        rt: i64::from(server_node.rtt.unwrap_or(0).saturating_mul(2)),
     })
 }
 
@@ -751,7 +750,14 @@ fn error_type_from_server_code(code: u32) -> Option<RustErrorType> {
 }
 
 fn error_type_from_message(lowered: &str) -> RustErrorType {
-    if lowered.contains("network_code") || lowered.contains("token") {
+    if lowered.contains("password")
+        || lowered.contains("key_sign")
+        || lowered.contains("key sign")
+        || lowered.contains("密钥")
+        || lowered.contains("密码")
+    {
+        RustErrorType::PasswordError
+    } else if lowered.contains("network_code") || lowered.contains("token") {
         RustErrorType::TokenError
     } else if lowered.contains("address exhausted") || lowered.contains("地址已耗尽") {
         RustErrorType::AddressExhausted
@@ -985,8 +991,8 @@ pub enum RustErrorType {
     LocalIpExists,
     FailedToCreateDevice,
     NetworkError,
-    Warn,
     Unknown,
+    PasswordError,
 }
 
 #[derive(Debug)]

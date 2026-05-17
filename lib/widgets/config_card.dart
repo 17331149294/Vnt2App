@@ -179,7 +179,9 @@ class ConfigCard extends StatelessWidget {
               isDark,
               Icons.dns_outlined,
               '服务器',
-              config.serverAddress.isNotEmpty ? config.serverAddress : '默认服务器',
+              config.effectiveServerList.isNotEmpty
+                  ? config.effectiveServerList.join(', ')
+                  : '默认服务器',
             ),
             SizedBox(height: context.spacing(8)),
             _buildInfoRow(

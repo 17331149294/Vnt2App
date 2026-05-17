@@ -238,8 +238,8 @@ enum RustErrorType {
   localIpExists,
   failedToCreateDevice,
   networkError,
-  warn,
   unknown,
+  passwordError,
   ;
 }
 
@@ -380,128 +380,104 @@ class RustRoute {
 }
 
 class VntConfig {
-  final bool tap;
-  final String token;
+  final List<String> serverAddr;
+  final String certMode;
+  final String networkCode;
   final String deviceId;
-  final String name;
-  final String serverAddressStr;
-  final List<String> nameServers;
-  final List<String> stunServer;
-  final List<(int, int, String)> inIps;
-  final List<(int, int)> outIps;
-  final String? password;
-  final int? mtu;
+  final String deviceName;
+  final String? tunName;
   final String? ip;
-  final bool noProxy;
-  final bool serverEncrypt;
-  final String cipherModel;
-  final bool finger;
-  final String punchModel;
-  final Uint16List? ports;
-  final bool firstLatency;
-  final String? deviceName;
-  final String useChannelType;
-  final double? packetLossRate;
-  final int packetDelay;
-  final List<String> portMappingList;
-  final String compressor;
-  final bool allowWireGuard;
-  final String? localDev;
-  final bool disableRelay;
+  final String? password;
+  final bool noPunch;
+  final bool compress;
+  final bool rtx;
+  final bool fec;
+  final List<String> input;
+  final List<String> output;
+  final bool noNat;
+  final bool noTun;
+  final int? mtu;
+  final List<String> portMapping;
+  final bool allowPortMapping;
+  final List<String> udpStun;
+  final List<String> tcpStun;
+  final int? tunnelPort;
 
   const VntConfig({
-    required this.tap,
-    required this.token,
+    required this.serverAddr,
+    required this.certMode,
+    required this.networkCode,
     required this.deviceId,
-    required this.name,
-    required this.serverAddressStr,
-    required this.nameServers,
-    required this.stunServer,
-    required this.inIps,
-    required this.outIps,
-    this.password,
-    this.mtu,
+    required this.deviceName,
+    this.tunName,
     this.ip,
-    required this.noProxy,
-    required this.serverEncrypt,
-    required this.cipherModel,
-    required this.finger,
-    required this.punchModel,
-    this.ports,
-    required this.firstLatency,
-    this.deviceName,
-    required this.useChannelType,
-    this.packetLossRate,
-    required this.packetDelay,
-    required this.portMappingList,
-    required this.compressor,
-    required this.allowWireGuard,
-    this.localDev,
-    required this.disableRelay,
+    this.password,
+    required this.noPunch,
+    required this.compress,
+    required this.rtx,
+    required this.fec,
+    required this.input,
+    required this.output,
+    required this.noNat,
+    required this.noTun,
+    this.mtu,
+    required this.portMapping,
+    required this.allowPortMapping,
+    required this.udpStun,
+    required this.tcpStun,
+    this.tunnelPort,
   });
 
   @override
   int get hashCode =>
-      tap.hashCode ^
-      token.hashCode ^
+      serverAddr.hashCode ^
+      certMode.hashCode ^
+      networkCode.hashCode ^
       deviceId.hashCode ^
-      name.hashCode ^
-      serverAddressStr.hashCode ^
-      nameServers.hashCode ^
-      stunServer.hashCode ^
-      inIps.hashCode ^
-      outIps.hashCode ^
-      password.hashCode ^
-      mtu.hashCode ^
-      ip.hashCode ^
-      noProxy.hashCode ^
-      serverEncrypt.hashCode ^
-      cipherModel.hashCode ^
-      finger.hashCode ^
-      punchModel.hashCode ^
-      ports.hashCode ^
-      firstLatency.hashCode ^
       deviceName.hashCode ^
-      useChannelType.hashCode ^
-      packetLossRate.hashCode ^
-      packetDelay.hashCode ^
-      portMappingList.hashCode ^
-      compressor.hashCode ^
-      allowWireGuard.hashCode ^
-      localDev.hashCode ^
-      disableRelay.hashCode;
+      tunName.hashCode ^
+      ip.hashCode ^
+      password.hashCode ^
+      noPunch.hashCode ^
+      compress.hashCode ^
+      rtx.hashCode ^
+      fec.hashCode ^
+      input.hashCode ^
+      output.hashCode ^
+      noNat.hashCode ^
+      noTun.hashCode ^
+      mtu.hashCode ^
+      portMapping.hashCode ^
+      allowPortMapping.hashCode ^
+      udpStun.hashCode ^
+      tcpStun.hashCode ^
+      tunnelPort.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is VntConfig &&
           runtimeType == other.runtimeType &&
-          tap == other.tap &&
-          token == other.token &&
+          serverAddr == other.serverAddr &&
+          certMode == other.certMode &&
+          networkCode == other.networkCode &&
           deviceId == other.deviceId &&
-          name == other.name &&
-          serverAddressStr == other.serverAddressStr &&
-          nameServers == other.nameServers &&
-          stunServer == other.stunServer &&
-          inIps == other.inIps &&
-          outIps == other.outIps &&
-          password == other.password &&
-          mtu == other.mtu &&
-          ip == other.ip &&
-          noProxy == other.noProxy &&
-          serverEncrypt == other.serverEncrypt &&
-          cipherModel == other.cipherModel &&
-          finger == other.finger &&
-          punchModel == other.punchModel &&
-          ports == other.ports &&
-          firstLatency == other.firstLatency &&
           deviceName == other.deviceName &&
-          useChannelType == other.useChannelType &&
-          packetLossRate == other.packetLossRate &&
-          packetDelay == other.packetDelay &&
-          portMappingList == other.portMappingList &&
-          compressor == other.compressor &&
-          allowWireGuard == other.allowWireGuard &&
-          localDev == other.localDev &&
-          disableRelay == other.disableRelay;
+          tunName == other.tunName &&
+          ip == other.ip &&
+          password == other.password &&
+          noPunch == other.noPunch &&
+          compress == other.compress &&
+          rtx == other.rtx &&
+          fec == other.fec &&
+          input == other.input &&
+          output == other.output &&
+          noNat == other.noNat &&
+          noTun == other.noTun &&
+          mtu == other.mtu &&
+          portMapping == other.portMapping &&
+          allowPortMapping == other.allowPortMapping &&
+          udpStun == other.udpStun &&
+          tcpStun == other.tcpStun &&
+          tunnelPort == other.tunnelPort;
 }

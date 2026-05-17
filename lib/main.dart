@@ -476,9 +476,8 @@ class _MainAppState extends State<MainApp> with WindowListener {
               }
             }
           } else if (msg is RustErrorInfo) {
-            // Disconnect 和 Warn 类型不销毁连接，Rust 层会自动重连
-            if (msg.code == RustErrorType.disconnect ||
-                msg.code == RustErrorType.warn) {
+            // Disconnect 类型不销毁连接，Rust 层会自动重连
+            if (msg.code == RustErrorType.disconnect) {
               debugPrint('磁贴启动：连接错误（非致命） - ${msg.msg}');
               // 不销毁连接，只显示提示
               return;

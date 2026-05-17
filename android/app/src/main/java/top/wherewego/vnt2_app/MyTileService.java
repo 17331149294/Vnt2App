@@ -29,7 +29,7 @@ public class MyTileService extends TileService {
         } else {
             tile.setState(Tile.STATE_INACTIVE);
         }
-        tile.setLabel("VNT");
+        tile.setLabel("VNT2");
         tile.updateTile();
     }
 
@@ -49,7 +49,7 @@ public class MyTileService extends TileService {
             } else {
                 tile.setState(Tile.STATE_INACTIVE);
             }
-            tile.setLabel("VNT");
+            tile.setLabel("VNT2");
             tile.updateTile();
             return null;
         });
@@ -131,4 +131,3 @@ public class MyTileService extends TileService {
         Log.i("Tile", "onClick 完成");
     }
 }
-

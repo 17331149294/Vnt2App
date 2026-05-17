@@ -588,7 +588,7 @@ class DataPersistence {
     try {
       final configs = await loadData();
       final jsonData = {
-        'version': '1.0',
+        'version': '2.0',
         'export_time': DateTime.now().toIso8601String(),
         'configs': configs.map((c) => c.toJson()).toList(),
       };
@@ -718,7 +718,7 @@ class DataPersistence {
   Future<void> exportSingleConfig(String filePath, NetworkConfig config) async {
     try {
       final jsonData = {
-        'version': '1.0',
+        'version': '2.0',
         'export_time': DateTime.now().toIso8601String(),
         'config': config.toJson(),
       };

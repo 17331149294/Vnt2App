@@ -41,11 +41,11 @@ class _DashboardPageState extends State<DashboardPage> {
   String _virtualIp = '';
   String _deviceName = '';
   String _relayServer = '';
+  String _relayServerSubtitle = '';
+  String _relayServerCopyText = '';
   int _avgLatency = 0;
   double _packetLoss = 0.0;
   bool _isEncrypted = false;
-  String _encryptionAlgorithm = '';
-  String _protocol = '';
   int _offlineDeviceCount = 0;
   bool _isVirtualIpAutoAssigned = false; // 虚拟IP是否为服务器自动分配
   String _natType = ''; // NAT类型
@@ -129,6 +129,27 @@ class _DashboardPageState extends State<DashboardPage> {
   // 判断设备是否在线 - 不区分大小写，去掉空格和换行
   bool _isDeviceOnline(String status) {
     return status.trim().toLowerCase() == 'online';
+  }
+
+  bool _isP2pRoute(RustRoute route) {
+    return route.protocol == 'P2P';
+  }
+
+  String _routeDisplayLabel(RustRoute route) {
+    switch (route.protocol) {
+      case 'P2P':
+        return 'P2P直连';
+      case 'Server':
+        return '服务器';
+      case 'ServerConnecting':
+        return '服务器连接中';
+      case 'ServerRelay':
+        return '服务器中继';
+      case 'ClientRelay':
+        return '客户端中继';
+      default:
+        return route.protocol;
+    }
   }
 
   Iterable<MapEntry<String, VntBox>> _activeVntEntries() {
@@ -224,11 +245,11 @@ class _DashboardPageState extends State<DashboardPage> {
     String virtualIp = '';
     String deviceName = '';
     String relayServer = '';
-    String protocol = '';
+    String relayServerSubtitle = '';
+    String relayServerCopyText = '';
     int totalLatency = 0;
     int latencyCount = 0;
     bool isEncrypted = false;
-    String encryptionAlgorithm = '';
     String natType = ''; // NAT类型
 
     // 速率数据（直接使用状态变量，不创建新列表）
@@ -325,18 +346,11 @@ class _DashboardPageState extends State<DashboardPage> {
         configName = config.configName;
         isEncrypted = config.groupPassword.isNotEmpty;
 
-          // 获取加密算法
-          if (isEncrypted) {
-            encryptionAlgorithm = config.encryptionAlgorithm.isNotEmpty
-                ? config.encryptionAlgorithm.toUpperCase()
-                : 'AES-GCM';
-          }
-
-          // 获取协议类型
-          protocol = config.protocol.isNotEmpty ? config.protocol.toUpperCase() : 'UDP';
-
-          // 获取用户配置的服务器地址（而不是解析后的地址）
-          relayServer = config.serverAddress;
+          final servers = config.effectiveServerList;
+          relayServer = servers.isEmpty ? '' : servers.first;
+          relayServerSubtitle =
+              servers.length > 1 ? '共 ${servers.length} 个服务器' : '';
+          relayServerCopyText = servers.join('\n');
 
           // 判断虚拟IP是否为自动分配（配置中的virtualIPv4为空表示自动分配）
           _isVirtualIpAutoAssigned = config.virtualIPv4.isEmpty;
@@ -421,10 +435,10 @@ class _DashboardPageState extends State<DashboardPage> {
       _virtualIp = virtualIp;
       _deviceName = deviceName;
       _relayServer = relayServer;
-      _protocol = protocol;
+      _relayServerSubtitle = relayServerSubtitle;
+      _relayServerCopyText = relayServerCopyText;
       _avgLatency = avgLatency;
       _isEncrypted = isEncrypted;
-      _encryptionAlgorithm = encryptionAlgorithm;
       _packetLoss = packetLoss;
       _natType = natType;
       // 注意：_isVirtualIpAutoAssigned 已经在上面直接赋值了
@@ -2031,7 +2045,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 title: '当前配置',
                 value: hasConnection ? _configName : '未连接',
                 subtitle: hasConnection
-                    ? (_isEncrypted ? '$_encryptionAlgorithm 加密' : '未加密')
+                    ? (_isEncrypted ? '组网密码已设置' : '未设置组网密码')
                     : '',
                 isEncrypted: hasConnection ? _isEncrypted : false,
                 onTap: hasConnection ? () => _showConfigDialog(isDark) : null,
@@ -2080,9 +2094,12 @@ class _DashboardPageState extends State<DashboardPage> {
           icon: Icons.router,
           title: '中继服务器',
           value: hasConnection ? _relayServer : '未连接',
-          subtitle: '',
+          subtitle: hasConnection ? _relayServerSubtitle : '',
           showCopyButton: hasConnection && _relayServer.isNotEmpty,
-          onCopy: () => _copyToClipboard(_relayServer, '$_relayServer 已复制'),
+          onCopy: () => _copyToClipboard(
+            _relayServerCopyText.isEmpty ? _relayServer : _relayServerCopyText,
+            _relayServerSubtitle.isEmpty ? '$_relayServer 已复制' : '服务器列表已复制',
+          ),
         ),
       ],
     );
@@ -2889,7 +2906,7 @@ class _DashboardPageState extends State<DashboardPage> {
           totalOnlineDevices++;
           final route = vntBox.route(device.virtualIp);
           if (route != null) {
-            if (route.metric == 1) {
+            if (_isP2pRoute(route)) {
               p2pCount++;
             } else {
               relayCount++;
@@ -3810,6 +3827,7 @@ class _DashboardPageState extends State<DashboardPage> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             flex: 2,
@@ -3832,11 +3850,20 @@ class _DashboardPageState extends State<DashboardPage> {
                 color: isDark ? Colors.white : Colors.black87,
               ),
               textAlign: TextAlign.right,
+              softWrap: true,
             ),
           ),
         ],
       ),
     );
+  }
+
+  String _joinConfigValues(List<String> values, {String emptyText = '未设置'}) {
+    final filtered = values.where((value) => value.trim().isNotEmpty).toList();
+    if (filtered.isEmpty) {
+      return emptyText;
+    }
+    return filtered.join('\n');
   }
 
   // 显示配置信息弹窗
@@ -3948,66 +3975,55 @@ class _DashboardPageState extends State<DashboardPage> {
                       _buildDeviceInfoItem(isDark, '设备名称', config.deviceName),
                       _buildDeviceInfoItem(isDark, '虚拟 IP', config.virtualIPv4.isEmpty ? '自动分配' : config.virtualIPv4),
                       _buildDeviceInfoItem(isDark, '设备 ID', config.deviceID.isEmpty ? '自动生成' : config.deviceID),
-                      _buildDeviceInfoItem(isDark, '本地物理网卡', config.localDev.isEmpty ? '系统自动路由' : config.localDev),
 
                       const SizedBox(height: 16),
 
                       // 服务器配置
                       _buildSectionTitle(isDark, '服务器配置'),
-                      _buildDeviceInfoItem(isDark, '服务器地址', config.serverAddress),
+                      _buildDeviceInfoItem(isDark, '服务器地址', _joinConfigValues(config.effectiveServerList)),
                       _buildDeviceInfoItem(isDark, 'Token', config.token.isEmpty ? '未设置' : '********'),
-                      _buildDeviceInfoItem(isDark, '连接协议', config.protocol.isEmpty ? 'UDP' : config.protocol.toUpperCase()),
-                      _buildDeviceInfoItem(isDark, 'STUN 服务器', config.stunServers.isEmpty ? '默认' : config.stunServers.join(', ')),
+                      _buildDeviceInfoItem(isDark, '证书验证', config.effectiveCertMode),
+                      _buildDeviceInfoItem(isDark, 'UDP STUN', _joinConfigValues(config.effectiveUdpStun, emptyText: '默认')),
+                      _buildDeviceInfoItem(isDark, 'TCP STUN', _joinConfigValues(config.effectiveTcpStun, emptyText: '默认')),
 
                       const SizedBox(height: 16),
 
                       // 安全配置
                       _buildSectionTitle(isDark, '安全配置'),
                       _buildDeviceInfoItem(isDark, '组网密码', config.groupPassword.isEmpty ? '未设置' : '********'),
-                      _buildDeviceInfoItem(isDark, '加密算法', config.encryptionAlgorithm.isEmpty ? '默认' : config.encryptionAlgorithm.toUpperCase()),
-                      _buildDeviceInfoItem(isDark, '服务器加密', config.isServerEncrypted ? '已启用' : '未启用'),
-                      _buildDeviceInfoItem(isDark, '数据指纹验证', config.dataFingerprintVerification ? '已启用' : '未启用'),
 
                       const SizedBox(height: 16),
 
                       // 网络配置
                       _buildSectionTitle(isDark, '网络配置'),
                       _buildDeviceInfoItem(isDark, 'MTU', config.mtu.toString()),
-                      _buildDeviceInfoItem(isDark, '端口', config.ports.isEmpty ? '自动' : config.ports.join(', ')),
                       _buildDeviceInfoItem(isDark, '虚拟网卡名称', config.virtualNetworkCardName.isEmpty ? '默认' : config.virtualNetworkCardName),
-                      _buildDeviceInfoItem(isDark, 'DNS', config.dns.isEmpty ? '未设置' : config.dns.join(', ')),
+                      _buildDeviceInfoItem(isDark, '关闭 TUN', config.noTun ? '是' : '否'),
+                      _buildDeviceInfoItem(isDark, '关闭 NAT', config.noNat ? '是' : '否'),
 
                       const SizedBox(height: 16),
 
                       // 高级配置
                       _buildSectionTitle(isDark, '高级配置'),
-                      _buildDeviceInfoItem(isDark, '打洞模式', config.punchModel.isEmpty ? '默认' : config.punchModel),
-                      _buildDeviceInfoItem(isDark, '通道类型', config.useChannelType.isEmpty ? '默认' : config.useChannelType),
-                      _buildDeviceInfoItem(isDark, '压缩算法', config.compressor.isEmpty ? '未启用' : config.compressor),
-                      _buildDeviceInfoItem(isDark, '优先延迟', config.firstLatency ? '已启用' : '未启用'),
-                      _buildDeviceInfoItem(isDark, '禁用代理', config.noInIpProxy ? '是' : '否'),
-                      _buildDeviceInfoItem(isDark, '允许 WireGuard', config.allowWg ? '是' : '否'),
-                      _buildDeviceInfoItem(isDark, '禁用客户端中继', config.disableRelay ? '是' : '否'),
+                      _buildDeviceInfoItem(isDark, 'P2P 打洞', config.noPunch ? '关闭' : '开启'),
+                      _buildDeviceInfoItem(isDark, 'LZ4 压缩', config.compress ? '开启' : '关闭'),
+                      _buildDeviceInfoItem(isDark, 'QUIC 增强通道', config.rtx ? '开启' : '关闭'),
+                      _buildDeviceInfoItem(isDark, 'FEC', config.fec ? '开启' : '关闭'),
+                      _buildDeviceInfoItem(isDark, '允许端口映射', config.allowMapping ? '是' : '否'),
+                      if (config.tunnelPort > 0)
+                        _buildDeviceInfoItem(isDark, 'P2P 直连端口', config.tunnelPort.toString()),
 
                       if (config.inIps.isNotEmpty || config.outIps.isNotEmpty || config.portMappings.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         _buildSectionTitle(isDark, '路由与映射'),
                         if (config.inIps.isNotEmpty)
-                          _buildDeviceInfoItem(isDark, '对端网段', config.inIps.join(', ')),
+                          _buildDeviceInfoItem(isDark, '对端网段', _joinConfigValues(config.inIps)),
                         if (config.outIps.isNotEmpty)
-                          _buildDeviceInfoItem(isDark, '本地网段', config.outIps.join(', ')),
+                          _buildDeviceInfoItem(isDark, '本地网段', _joinConfigValues(config.outIps)),
                         if (config.portMappings.isNotEmpty)
-                          _buildDeviceInfoItem(isDark, '端口映射', config.portMappings.join(', ')),
+                          _buildDeviceInfoItem(isDark, '端口映射', _joinConfigValues(config.portMappings)),
                       ],
 
-                      if (config.simulatedPacketLossRate > 0 || config.simulatedLatency > 0) ...[
-                        const SizedBox(height: 16),
-                        _buildSectionTitle(isDark, '模拟测试'),
-                        if (config.simulatedPacketLossRate > 0)
-                          _buildDeviceInfoItem(isDark, '模拟丢包率', '${config.simulatedPacketLossRate}%'),
-                        if (config.simulatedLatency > 0)
-                          _buildDeviceInfoItem(isDark, '模拟延迟', '${config.simulatedLatency}ms'),
-                      ],
                     ],
                   ),
                 ),
@@ -4143,9 +4159,12 @@ class _DashboardPageState extends State<DashboardPage> {
         String rt = '';
         int rtValue = 0;
         if (route != null) {
-          p2pRelay = route.metric == 1 ? 'P2P' : 'Relay';
+          p2pRelay = _routeDisplayLabel(route);
           rtValue = route.rt;
           rt = route.rt > 0 && route.rt < 9999 ? '${route.rt}ms' : '--';
+        }
+        if (device.clientSecret) {
+          p2pRelay = '密码不匹配';
         }
 
         // 获取NAT类型信息
@@ -4161,6 +4180,7 @@ class _DashboardPageState extends State<DashboardPage> {
           'status': device.status,
           'isOnline': isOnline,
           'p2pRelay': p2pRelay,
+          'passwordMismatch': device.clientSecret,
           'rt': rt,
           'rtValue': rtValue,
           'natType': natType,
@@ -4488,9 +4508,11 @@ class _DashboardPageState extends State<DashboardPage> {
                                               Container(
                                                 padding: EdgeInsets.symmetric(horizontal: context.spacingXSmall, vertical: context.spacingXSmall / 4),
                                                 decoration: BoxDecoration(
-                                                  color: device['p2pRelay'] == 'P2P'
-                                                      ? Colors.blue[400]!.withOpacity(0.2)
-                                                      : Colors.orange[400]!.withOpacity(0.2),
+                                                  color: device['passwordMismatch'] == true
+                                                      ? Colors.red[400]!.withOpacity(0.2)
+                                                      : (device['p2pRelay'] == 'P2P直连'
+                                                          ? Colors.blue[400]!.withOpacity(0.2)
+                                                          : Colors.orange[400]!.withOpacity(0.2)),
                                                   borderRadius: BorderRadius.circular(6),
                                                 ),
                                                 child: Text(
@@ -4498,9 +4520,11 @@ class _DashboardPageState extends State<DashboardPage> {
                                                   style: TextStyle(
                                                     fontSize: context.fontXSmall,
                                                     fontWeight: FontWeight.bold,
-                                                    color: device['p2pRelay'] == 'P2P'
-                                                        ? Colors.blue[400]
-                                                        : Colors.orange[400],
+                                                    color: device['passwordMismatch'] == true
+                                                        ? Colors.red[400]
+                                                        : (device['p2pRelay'] == 'P2P直连'
+                                                            ? Colors.blue[400]
+                                                            : Colors.orange[400]),
                                                   ),
                                                 ),
                                               ),

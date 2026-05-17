@@ -24,7 +24,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * VNT 常驻通知服务
+ * VNT2 常驻通知服务
  * 提供不可移除的常驻通知，显示连接状态并支持快速切换
  */
 public class VntNotificationService extends Service {
@@ -128,10 +128,10 @@ public class VntNotificationService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
-                "VNT 连接状态",
+                "VNT2 连接状态",
                 NotificationManager.IMPORTANCE_LOW // 低重要性，不会发出声音
             );
-            channel.setDescription("显示 VNT 连接状态和快速切换按钮");
+            channel.setDescription("显示 VNT2 连接状态和快速切换按钮");
             channel.setShowBadge(false); // 不显示角标
             channel.enableLights(false); // 不显示指示灯
             channel.enableVibration(false); // 不振动
@@ -231,7 +231,7 @@ public class VntNotificationService extends Service {
             if (notification == null) {
                 NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_dialog_info) // 使用系统图标作为后备
-                    .setContentTitle("VNT - " + statusText)
+                    .setContentTitle("VNT2 - " + statusText)
                     .setContentText(description)
                     .setContentIntent(contentIntent)
                     .setOngoing(true)

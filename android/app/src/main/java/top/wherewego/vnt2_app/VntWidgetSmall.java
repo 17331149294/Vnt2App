@@ -5,7 +5,7 @@ import android.content.Context;
 import android.widget.RemoteViews;
 
 /**
- * VNT 小尺寸桌面小组件 (1x1)
+ * VNT2 小尺寸桌面小组件 (1x1)
  * 仅显示开关按钮
  */
 public class VntWidgetSmall extends VntWidget {

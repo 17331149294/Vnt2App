@@ -266,9 +266,8 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           await SystemTrayManager().updateTooltip();
         }
       } else if (msg is RustErrorInfo) {
-        // Disconnect 和 Warn 类型不销毁连接，Rust 层会自动重连
-        if (msg.code == RustErrorType.disconnect ||
-            msg.code == RustErrorType.warn) {
+        // Disconnect 类型不销毁连接，Rust 层会自动重连
+        if (msg.code == RustErrorType.disconnect) {
           if (onece) {
             onece = false;
             closeDialog(); // 关闭连接中对话框
@@ -370,8 +369,8 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       case RustErrorType.networkError:
         errorMessage = '[$configName] 网络连接初始化失败';
         break;
-      case RustErrorType.warn:
-        errorMessage = '[$configName] 警告';
+      case RustErrorType.passwordError:
+        errorMessage = '[$configName] 组网密码错误';
         break;
       default:
         errorMessage = '[$configName] 未知错误';

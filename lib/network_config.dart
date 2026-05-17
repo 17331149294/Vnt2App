@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 class NetworkConfig {
   String itemKey;
   String configName;
@@ -164,64 +162,6 @@ class NetworkConfig {
         .toList(growable: false);
   }
 
-  String get bridgeCipherModelPayload {
-    return '__vnt_bridge_json__=${jsonEncode({
-      'cert_mode': effectiveCertMode,
-      'cipher_model': encryptionAlgorithm,
-      'rtx': rtx,
-      'fec': fec,
-      'no_tun': noTun,
-      'allow_mapping': allowMapping,
-      'udp_stun': effectiveUdpStun,
-      'tcp_stun': effectiveTcpStun,
-      if (tunnelPort > 0) 'tunnel_port': tunnelPort,
-    })}';
-  }
-
-  String? get bridgeLocalIpv4 {
-    final ipv4 = resolvedLocalBindIpv4;
-    return ipv4.isEmpty ? null : ipv4;
-  }
-
-  bool get coreNoProxy => noNat || noInIpProxy;
-
-  String get coreUseChannelType {
-    if (noPunch) {
-      return 'relay';
-    }
-    if (disableRelay) {
-      return 'p2p';
-    }
-    return useChannelType;
-  }
-
-  String get coreCompressor {
-    if (compress) {
-      return 'lz4';
-    }
-    return compressor.isEmpty ? 'none' : compressor;
-  }
-
-  String get resolvedLocalBindIpv4 {
-    final normalizedLocalIpv4 = localIpv4.trim();
-    if (_looksLikeIpv4(normalizedLocalIpv4)) {
-      return normalizedLocalIpv4;
-    }
-    final legacyLocalDev = localDev.trim();
-    if (_looksLikeIpv4(legacyLocalDev)) {
-      return legacyLocalDev;
-    }
-    return '';
-  }
-
-  String get resolvedLocalBinding {
-    final normalizedLocalIpv4 = localIpv4.trim();
-    if (normalizedLocalIpv4.isNotEmpty) {
-      return normalizedLocalIpv4;
-    }
-    return localDev.trim();
-  }
-
   List<String> get effectiveServerList {
     if (serverList.isNotEmpty) {
       return List<String>.from(serverList);
@@ -240,10 +180,7 @@ class NetworkConfig {
   }
 
   List<String> get effectiveTcpStun {
-    if (tcpStun.isNotEmpty) {
-      return List<String>.from(tcpStun);
-    }
-    return List<String>.from(effectiveUdpStun);
+    return List<String>.from(tcpStun);
   }
 
   Map<String, dynamic> toJson() {
@@ -251,53 +188,27 @@ class NetworkConfig {
       'itemKey': itemKey,
       'network_code': token,
       'config_name': configName,
-      'token': token,
-      'name': deviceName,
-      'display_device_name': deviceName,
       'ip': virtualIPv4,
-      'server_address': serverAddress,
       'server': effectiveServerList,
-      'stun_server': stunServers,
-      'udp_stun': udpStun,
-      'tcp_stun': tcpStun,
-      'in_ips': inIps,
-      'input': inIps,
-      'out_ips': outIps,
-      'output': outIps,
-      'mapping': portMappings,
-      'port_mapping': portMappings,
-      'password': groupPassword,
-      'server_encrypt': isServerEncrypted,
-      'protocol': protocol,
-      'finger': dataFingerprintVerification,
-      'cipher_model': encryptionAlgorithm,
       'device_id': deviceID,
-      'device_name': virtualNetworkCardName,
+      'device_name': deviceName,
       'tun_name': virtualNetworkCardName,
-      'cert_mode': certMode,
-      'ctrl_port': ctrlPort,
+      'password': groupPassword,
+      'cert_mode': effectiveCertMode,
       'mtu': mtu,
-      'ports': ports,
-      'first_latency': firstLatency,
-      'no_proxy': noInIpProxy,
-      'rtx': rtx,
-      'compress': compress,
-      'fec': fec,
       'no_punch': noPunch,
+      'compress': compress,
+      'rtx': rtx,
+      'fec': fec,
+      'input': inIps,
+      'output': outIps,
+      'port_mapping': portMappings,
       'no_nat': noNat,
       'no_tun': noTun,
-      'allow_mapping': allowMapping,
+      'allow_port_mapping': allowMapping,
+      'udp_stun': effectiveUdpStun,
+      'tcp_stun': effectiveTcpStun,
       'tunnel_port': tunnelPort,
-      'dns': dns,
-      'packet_loss': simulatedPacketLossRate,
-      'packet_delay': simulatedLatency,
-      'punch_model': punchModel,
-      'use_channel': useChannelType,
-      'compressor': compressor,
-      'allow_wire_guard': allowWg,
-      'local_dev': localDev,
-      'local_ipv4': localIpv4,
-      'disable_relay': disableRelay,
       'updated_at': updatedAt,
     };
   }
@@ -306,59 +217,33 @@ class NetworkConfig {
     return {
       if (configName.isNotEmpty) 'config_name': configName,
       if (token.isNotEmpty) 'network_code': token,
-      if (token.isNotEmpty) 'token': token,
-      if (deviceName.isNotEmpty) 'name': deviceName,
-      if (deviceName.isNotEmpty) 'display_device_name': deviceName,
       if (virtualIPv4.isNotEmpty) 'ip': virtualIPv4,
-      if (serverAddress.isNotEmpty) 'server_address': serverAddress,
       if (serverList.isNotEmpty) 'server': effectiveServerList,
-      if (stunServers.isNotEmpty) 'stun_server': stunServers,
-      if (udpStun.isNotEmpty) 'udp_stun': udpStun,
-      if (tcpStun.isNotEmpty) 'tcp_stun': tcpStun,
-      if (inIps.isNotEmpty) 'in_ips': inIps,
-      if (inIps.isNotEmpty) 'input': inIps,
-      if (outIps.isNotEmpty) 'out_ips': outIps,
-      if (outIps.isNotEmpty) 'output': outIps,
-      if (portMappings.isNotEmpty) 'mapping': portMappings,
-      if (portMappings.isNotEmpty) 'port_mapping': portMappings,
-      if (groupPassword.isNotEmpty) 'password': groupPassword,
-      if (isServerEncrypted) 'server_encrypt': isServerEncrypted,
-      if (protocol.isNotEmpty) 'protocol': protocol,
-      if (dataFingerprintVerification) 'finger': dataFingerprintVerification,
-      if (encryptionAlgorithm.isNotEmpty) 'cipher_model': encryptionAlgorithm,
       if (deviceID.isNotEmpty) 'device_id': deviceID,
-      if (virtualNetworkCardName.isNotEmpty) 'device_name': virtualNetworkCardName,
+      if (deviceName.isNotEmpty) 'device_name': deviceName,
       if (virtualNetworkCardName.isNotEmpty) 'tun_name': virtualNetworkCardName,
-      if (certMode.isNotEmpty) 'cert_mode': certMode,
-      'ctrl_port': ctrlPort,
+      if (groupPassword.isNotEmpty) 'password': groupPassword,
+      if (certMode.isNotEmpty) 'cert_mode': effectiveCertMode,
       if (mtu != 0) 'mtu': mtu,
-      if (ports.isNotEmpty) 'ports': ports,
-      if (firstLatency) 'first_latency': firstLatency,
-      if (noInIpProxy) 'no_proxy': noInIpProxy,
-      if (rtx) 'rtx': rtx,
-      if (compress) 'compress': compress,
-      if (fec) 'fec': fec,
       if (noPunch) 'no_punch': noPunch,
+      if (compress) 'compress': compress,
+      if (rtx) 'rtx': rtx,
+      if (fec) 'fec': fec,
+      if (inIps.isNotEmpty) 'input': inIps,
+      if (outIps.isNotEmpty) 'output': outIps,
+      if (portMappings.isNotEmpty) 'port_mapping': portMappings,
       if (noNat) 'no_nat': noNat,
       if (noTun) 'no_tun': noTun,
-      if (allowMapping) 'allow_mapping': allowMapping,
+      if (allowMapping) 'allow_port_mapping': allowMapping,
+      if (effectiveUdpStun.isNotEmpty) 'udp_stun': effectiveUdpStun,
+      if (effectiveTcpStun.isNotEmpty) 'tcp_stun': effectiveTcpStun,
       if (tunnelPort > 0) 'tunnel_port': tunnelPort,
-      if (dns.isNotEmpty) 'dns': dns,
-      if (simulatedPacketLossRate != 0) 'packet_loss': simulatedPacketLossRate,
-      if (simulatedLatency != 0) 'packet_delay': simulatedLatency,
-      if (punchModel.isNotEmpty) 'punch_model': punchModel,
-      if (useChannelType.isNotEmpty) 'use_channel': useChannelType,
-      if (compressor.isNotEmpty) 'compressor': compressor,
-      if (allowWg) 'allow_wire_guard': allowWg,
-      if (localDev.isNotEmpty) 'local_dev': localDev,
-      if (localIpv4.isNotEmpty) 'local_ipv4': localIpv4,
-      if (disableRelay) 'disable_relay': disableRelay,
       if (updatedAt.isNotEmpty) 'updated_at': updatedAt,
     };
   }
 
   factory NetworkConfig.fromJson(Map<String, dynamic> json) {
-    final serverList = _stringList(json['server']);
+    final serverList = _stringList(json['server'] ?? json['server_addr']);
     final serverAddress = _stringValue(
       json['server_address'],
       fallback: serverList.isNotEmpty ? serverList.first : '',
@@ -367,15 +252,32 @@ class NetworkConfig {
       json['display_device_name'] ?? json['name'],
       fallback: _stringValue(json['device_name'], fallback: ''),
     );
-    final portMappings = _stringList(json['mapping'] ?? json['port_mapping']);
+    final portMappings =
+        _normalizePortMappings(_stringList(json['port_mapping'] ?? json['mapping']));
+    final hasLegacyDisplayName =
+        json.containsKey('display_device_name') || json.containsKey('name');
     final virtualNetworkCardName = _stringValue(
-      json['tun_name'] ?? json['device_name'],
+      json['tun_name'] ?? (hasLegacyDisplayName ? json['device_name'] : null),
       fallback: '',
     );
+    final noPunch = json.containsKey('no_punch')
+        ? _boolValue(json['no_punch'])
+        : _stringValue(json['use_channel'], fallback: 'all') == 'relay';
+    final compress = json.containsKey('compress')
+        ? _boolValue(json['compress'])
+        : _stringValue(json['compressor'], fallback: 'none') == 'lz4';
+    final allowMapping = json.containsKey('allow_port_mapping')
+        ? _boolValue(json['allow_port_mapping'])
+        : json.containsKey('allow_mapping')
+            ? _boolValue(json['allow_mapping'])
+            : portMappings.isNotEmpty;
     return NetworkConfig(
       itemKey: _stringValue(json['itemKey'], fallback: ''),
       configName: _stringValue(json['config_name'], fallback: ''),
-      token: _stringValue(json['token'] ?? json['network_code'], fallback: ''),
+      token: _stringValue(
+        json['network_code'],
+        fallback: _stringValue(json['token'], fallback: ''),
+      ),
       deviceName: deviceName,
       virtualIPv4: _stringValue(json['ip'], fallback: ''),
       serverAddress: serverAddress,
@@ -401,43 +303,31 @@ class NetworkConfig {
       mtu: _intValue(json['mtu'], fallback: 1410),
       ports: _intList(json['ports']),
       firstLatency: _boolValue(json['first_latency']),
-      noInIpProxy: _boolValue(json['no_proxy']),
+      noInIpProxy: _boolValue(json['no_proxy'] ?? json['no_nat']),
       rtx: _boolValue(json['rtx']),
-      compress: _boolValue(json['compress']),
+      compress: compress,
       fec: _boolValue(json['fec']),
-      noPunch: _boolValue(json['no_punch']),
-      noNat: _boolValue(json['no_nat']),
+      noPunch: noPunch,
+      noNat: _boolValue(json['no_nat'] ?? json['no_proxy']),
       noTun: _boolValue(json['no_tun']),
-      allowMapping: json.containsKey('allow_mapping')
-          ? _boolValue(json['allow_mapping'])
-          : portMappings.isNotEmpty,
+      allowMapping: allowMapping,
       tunnelPort: _intValue(json['tunnel_port']),
       dns: _stringList(json['dns']),
       simulatedPacketLossRate: _doubleValue(json['packet_loss']),
       simulatedLatency: _intValue(json['packet_delay']),
       punchModel: _stringValue(json['punch_model'], fallback: 'all'),
-      useChannelType: _stringValue(json['use_channel'], fallback: 'all'),
-      compressor: _stringValue(json['compressor'], fallback: 'none'),
+      useChannelType: noPunch
+          ? 'relay'
+          : _stringValue(json['use_channel'], fallback: 'all'),
+      compressor: compress
+          ? 'lz4'
+          : _stringValue(json['compressor'], fallback: 'none'),
       allowWg: _boolValue(json['allow_wire_guard']),
       localDev: _stringValue(json['local_dev'], fallback: ''),
       localIpv4: _stringValue(json['local_ipv4'], fallback: ''),
       disableRelay: _boolValue(json['disable_relay']),
       updatedAt: _stringValue(json['updated_at'], fallback: ''),
     );
-  }
-
-  static bool _looksLikeIpv4(String value) {
-    final match = RegExp(r'^\d{1,3}(?:\.\d{1,3}){3}$').hasMatch(value);
-    if (!match) {
-      return false;
-    }
-    for (final segment in value.split('.')) {
-      final number = int.tryParse(segment);
-      if (number == null || number < 0 || number > 255) {
-        return false;
-      }
-    }
-    return true;
   }
 
   static String _stringValue(dynamic value, {String fallback = ''}) {
@@ -470,6 +360,28 @@ class NetworkConfig {
         .map((item) => _intValue(item))
         .where((item) => item > 0)
         .toList(growable: false);
+  }
+
+  static List<String> _normalizePortMappings(List<String> values) {
+    return values.map(_normalizePortMapping).toList(growable: false);
+  }
+
+  static String _normalizePortMapping(String value) {
+    final trimmed = value.trim();
+    if (trimmed.contains('://')) {
+      return trimmed;
+    }
+    final match = RegExp(r'^(tcp|udp):(.+):(\d+)-([^:]+):(\d+)$')
+        .firstMatch(trimmed);
+    if (match == null) {
+      return trimmed;
+    }
+    final protocol = match.group(1)!;
+    final srcHost = match.group(2)!;
+    final srcPort = match.group(3)!;
+    final target = match.group(4)!;
+    final dstPort = match.group(5)!;
+    return '$protocol://$srcHost:$srcPort-$target-$target:$dstPort';
   }
 
   static bool _boolValue(dynamic value) {

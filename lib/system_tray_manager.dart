@@ -202,8 +202,8 @@ class SystemTrayManager {
             updateTooltip();
           }
         } else if (message is RustErrorInfo) {
-          // Disconnect 和 Warn 类型不销毁连接，Rust 层会自动重连
-          if (message.code == RustErrorType.disconnect || message.code == RustErrorType.warn) {
+          // Disconnect 类型不销毁连接，Rust 层会自动重连
+          if (message.code == RustErrorType.disconnect) {
             debugPrint('系统托盘：连接错误（非致命） - ${message.msg}');
             // 不销毁连接，只记录日志
             return;

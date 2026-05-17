@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 class FileSaver {
-  static const MethodChannel _channel = MethodChannel('top.wherewego.vnt/file');
+  static const MethodChannel _channel =
+      MethodChannel('top.wherewego.vnt2/file');
 
   /// 保存文件到用户选择的位置
   ///

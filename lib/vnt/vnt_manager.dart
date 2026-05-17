@@ -2,13 +2,11 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vnt2_app/network_config.dart';
 import 'package:vnt2_app/src/rust/api/vnt_api.dart';
-import 'package:vnt2_app/utils/ip_utils.dart';
 
 /// macOS 权限管理器
 class MacOSPrivilegeManager {
@@ -50,7 +48,7 @@ class MacOSPrivilegeManager {
       if (showPrompt) {
         script = '''
 tell application "System Events"
-    display dialog "VNT 需要管理员权限来创建虚拟网络设备。\\n\\n授权后将自动重启应用。" buttons {"取消", "授权"} default button "授权" with icon caution
+    display dialog "VNT2 需要管理员权限来创建虚拟网络设备。\\n\\n授权后将自动重启应用。" buttons {"取消", "授权"} default button "授权" with icon caution
     if button returned of result is "授权" then
         do shell script "\\"$executablePath\\" > /dev/null 2>&1 &" with administrator privileges
     end if
@@ -138,38 +136,34 @@ class VntBox {
         ? compatibleServerList.join('\n')
         : config.v2CompatiblePrimaryServerAddress;
     var vntConfig = VntConfig(
-        tap: false,
-        token: config.token,
+        serverAddr: compatibleServerAddress
+            .split('\n')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(growable: false),
+        certMode: config.effectiveCertMode,
+        networkCode: config.token,
         deviceId: config.deviceID,
-        name: config.deviceName,
-        serverAddressStr: compatibleServerAddress,
-        nameServers: config.dns,
-        stunServer: config.effectiveUdpStun,
-        inIps: config.inIps.map((v) => IpUtils.parseInIpString(v)).toList(),
-        outIps: config.outIps.map((v) => IpUtils.parseOutIpString(v)).toList(),
-        password: config.groupPassword.isEmpty ? null : config.groupPassword,
-        mtu: config.mtu == 0 ? null : config.mtu,
-        ip: config.virtualIPv4.isEmpty ? null : config.virtualIPv4,
-        noProxy: config.coreNoProxy,
-        serverEncrypt: config.isServerEncrypted,
-        cipherModel: config.bridgeCipherModelPayload,
-        finger: config.dataFingerprintVerification,
-        punchModel: config.punchModel,
-        ports: config.ports.isEmpty ? null : Uint16List.fromList(config.ports),
-        firstLatency: config.firstLatency,
-        deviceName: config.virtualNetworkCardName.isEmpty
+        deviceName: config.deviceName,
+        tunName: config.virtualNetworkCardName.isEmpty
             ? null
             : config.virtualNetworkCardName,
-        useChannelType: config.coreUseChannelType,
-        packetLossRate: config.simulatedPacketLossRate == 0
-            ? null
-            : config.simulatedPacketLossRate,
-        packetDelay: config.simulatedLatency,
-        portMappingList: config.portMappings,
-        compressor: config.coreCompressor,
-        allowWireGuard: config.allowWg,
-        localDev: config.bridgeLocalIpv4,
-        disableRelay: config.disableRelay);
+        ip: config.virtualIPv4.isEmpty ? null : config.virtualIPv4,
+        password: config.groupPassword.isEmpty ? null : config.groupPassword,
+        noPunch: config.noPunch,
+        compress: config.compress,
+        rtx: config.rtx,
+        fec: config.fec,
+        input: config.inIps,
+        output: config.outIps,
+        noNat: config.noNat,
+        noTun: config.noTun,
+        mtu: config.mtu == 0 ? null : config.mtu,
+        portMapping: config.portMappings,
+        allowPortMapping: config.allowMapping,
+        udpStun: config.effectiveUdpStun,
+        tcpStun: config.effectiveTcpStun,
+        tunnelPort: config.tunnelPort > 0 ? config.tunnelPort : null);
     var vntCall = VntApiCallback(successFn: () {
       uiCall.send('success');
     }, createTunFn: (info) {
@@ -224,45 +218,28 @@ class VntBox {
 
   Map<String, dynamic> coreConfig() {
     return {
-      'tap': vntConfig.tap,
-      'token': vntConfig.token,
+      'server_addr': vntConfig.serverAddr,
+      'cert_mode': vntConfig.certMode,
+      'network_code': vntConfig.networkCode,
       'device_id': vntConfig.deviceId,
-      'name': vntConfig.name,
-      'server_address_str': vntConfig.serverAddressStr,
-      'name_servers': vntConfig.nameServers,
-      'stun_server': vntConfig.stunServer,
-      'in_ips': vntConfig.inIps
-          .map((value) => {
-                'ip': value.$1,
-                'prefix': value.$2,
-                'gateway': value.$3,
-              })
-          .toList(),
-      'out_ips': vntConfig.outIps
-          .map((value) => {
-                'ip': value.$1,
-                'prefix': value.$2,
-              })
-          .toList(),
-      'password': vntConfig.password,
-      'mtu': vntConfig.mtu,
-      'ip': vntConfig.ip,
-      'no_proxy': vntConfig.noProxy,
-      'server_encrypt': vntConfig.serverEncrypt,
-      'cipher_model': vntConfig.cipherModel,
-      'finger': vntConfig.finger,
-      'punch_model': vntConfig.punchModel,
-      'ports': vntConfig.ports?.toList(),
-      'first_latency': vntConfig.firstLatency,
       'device_name': vntConfig.deviceName,
-      'use_channel_type': vntConfig.useChannelType,
-      'packet_loss_rate': vntConfig.packetLossRate,
-      'packet_delay': vntConfig.packetDelay,
-      'port_mapping_list': vntConfig.portMappingList,
-      'compressor': vntConfig.compressor,
-      'allow_wire_guard': vntConfig.allowWireGuard,
-      'local_dev': vntConfig.localDev,
-      'disable_relay': vntConfig.disableRelay,
+      'tun_name': vntConfig.tunName,
+      'ip': vntConfig.ip,
+      'password': vntConfig.password,
+      'no_punch': vntConfig.noPunch,
+      'compress': vntConfig.compress,
+      'rtx': vntConfig.rtx,
+      'fec': vntConfig.fec,
+      'input': vntConfig.input,
+      'output': vntConfig.output,
+      'no_nat': vntConfig.noNat,
+      'no_tun': vntConfig.noTun,
+      'mtu': vntConfig.mtu,
+      'port_mapping': vntConfig.portMapping,
+      'allow_port_mapping': vntConfig.allowPortMapping,
+      'udp_stun': vntConfig.udpStun,
+      'tcp_stun': vntConfig.tcpStun,
+      'tunnel_port': vntConfig.tunnelPort,
     };
   }
 
@@ -428,7 +405,7 @@ class VntManager {
 typedef StartCallback = Future<void> Function(String? configKey);
 
 class VntAppCall {
-  static MethodChannel channel = const MethodChannel('top.wherewego.vnt/vpn');
+  static MethodChannel channel = const MethodChannel('top.wherewego.vnt2/vpn');
   static StartCallback startCall = (String? configKey) async {};
   static void setStartCall(StartCallback startCall) {
     VntAppCall.startCall = startCall;

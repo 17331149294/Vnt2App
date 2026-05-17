@@ -5,7 +5,7 @@ set -e
 APP_PATH="$1"
 DMG_PATH="$2"
 APP_NAME="vnt2_app"
-VOLUME_NAME="VNT App"
+VOLUME_NAME="VNT2 App"
 
 # 临时目录
 TMP_DMG="tmp.dmg"

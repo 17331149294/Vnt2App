@@ -29,7 +29,8 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
   final _virtualIPv4Controller = TextEditingController();
   final _serverAddressControllers = <TextEditingController>[];
   final _serverProtocolSelections = <String>[];
-  final _stunServers = <TextEditingController>[];
+  final _udpStunServers = <TextEditingController>[];
+  final _tcpStunServers = <TextEditingController>[];
   final _inIps = <TextEditingController>[];
   final _outIps = <TextEditingController>[];
   final _portMappings = <TextEditingController>[];
@@ -37,17 +38,21 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
   final _deviceIDController = TextEditingController(); // 不可编辑
   final _virtualNetworkCardNameController = TextEditingController();
   final _mtuController = TextEditingController();
+  final _certModeController = TextEditingController(text: 'skip');
+  final _tunnelPortController = TextEditingController();
 
   bool _isPasswordVisible = false;
   bool _isTokenVisible = false;
   String _communicationMethod = 'QUIC';
   String _builtInIpProxy = 'OPEN';
+  String _p2pPunch = 'OPEN';
   bool _isMoreParametersVisible = false;
-  bool _relaySelected = true;
-  bool _p2pSelected = true;
+  bool _rtx = false;
+  bool _fec = false;
+  bool _noTun = false;
+  bool _allowPortMapping = false;
 
-  String _compressionMethod = 'none'; // 默认不压缩
-  int _compressionLevel = 3; // 默认压缩级别
+  String _compressionMethod = 'none'; // 核心仅支持 none/lz4
 
   _NetworkConfigInputPageState() {}
 
@@ -60,8 +65,11 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     } else {
       _loadDefault();
     }
-    if (_stunServers.isEmpty) {
-      _stunServers.add(TextEditingController());
+    if (_udpStunServers.isEmpty) {
+      _udpStunServers.add(TextEditingController());
+    }
+    if (_tcpStunServers.isEmpty) {
+      _tcpStunServers.add(TextEditingController());
     }
     if (_inIps.isEmpty) {
       _inIps.add(TextEditingController());
@@ -78,10 +86,9 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
   }
 
   void _loadDefault() {
-    _stunServers.add(TextEditingController(text: "stun.miwifi.com"));
-    _stunServers.add(TextEditingController(text: "stun.chat.bilibili.com"));
-    _stunServers.add(TextEditingController(text: "stun.hitv.com"));
-    _stunServers.add(TextEditingController(text: "stun.cdnbye.com"));
+    _udpStunServers.add(TextEditingController(text: "stun.miwifi.com:3478"));
+    _udpStunServers.add(TextEditingController(text: "stun.chat.bilibili.com:3478"));
+    _udpStunServers.add(TextEditingController(text: "stun.l.google.com:19302"));
     _mtuController.text = "1410";
     _addServerAddressController(
       text: "47.107.166.63:29872",
@@ -102,8 +109,11 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         updateState: false,
       );
     }
-    for (String stunServer in config.stunServers) {
-      _stunServers.add(TextEditingController(text: stunServer));
+    for (String stunServer in config.effectiveUdpStun) {
+      _udpStunServers.add(TextEditingController(text: stunServer));
+    }
+    for (String stunServer in config.tcpStun) {
+      _tcpStunServers.add(TextEditingController(text: stunServer));
     }
     for (String inIp in config.inIps) {
       _inIps.add(TextEditingController(text: inIp));
@@ -124,19 +134,15 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     _deviceIDController.text = config.deviceID;
     _virtualNetworkCardNameController.text = config.virtualNetworkCardName;
     _mtuController.text = config.mtu.toString();
-    _relaySelected =
-        config.useChannelType == 'relay' || config.useChannelType == 'all';
-    _p2pSelected =
-        config.useChannelType == 'p2p' || config.useChannelType == 'all';
-    if (config.compressor == 'lz4') {
-      _compressionMethod = 'lz4';
-    } else if (config.compressor.startsWith('zstd')) {
-      var arr = config.compressor.split(',');
-      if (arr.length == 2) {
-        _compressionMethod = arr[0];
-        _compressionLevel = int.tryParse(arr[1]) ?? 3;
-      }
-    }
+    _certModeController.text = config.effectiveCertMode;
+    _tunnelPortController.text =
+        config.tunnelPort > 0 ? config.tunnelPort.toString() : '';
+    _p2pPunch = config.noPunch ? 'CLOSE' : 'OPEN';
+    _compressionMethod = config.compress ? 'lz4' : 'none';
+    _rtx = config.rtx;
+    _fec = config.fec;
+    _noTun = config.noTun;
+    _allowPortMapping = config.allowMapping;
     setState(() {
       _builtInIpProxy = config.noInIpProxy ? 'CLOSE' : 'OPEN';
     });
@@ -172,6 +178,10 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         showTopToast(context, '请至少填写一个服务器地址', isSuccess: false);
         return;
       }
+      final portMappings = _portMappings
+          .map((controller) => controller.text)
+          .where((text) => text.isNotEmpty)
+          .toList();
       NetworkConfig config = NetworkConfig(
         itemKey: widget.config?.itemKey ?? DateTime.now().millisecondsSinceEpoch.toString(),
         configName: name,
@@ -180,7 +190,15 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         virtualIPv4: _virtualIPv4Controller.text,
         serverAddress: serverList.isNotEmpty ? serverList.first : '',
         serverList: serverList,
-        stunServers: _stunServers
+        stunServers: _udpStunServers
+            .map((controller) => controller.text)
+            .where((text) => text.isNotEmpty)
+            .toList(),
+        udpStun: _udpStunServers
+            .map((controller) => controller.text)
+            .where((text) => text.isNotEmpty)
+            .toList(),
+        tcpStun: _tcpStunServers
             .map((controller) => controller.text)
             .where((text) => text.isNotEmpty)
             .toList(),
@@ -192,10 +210,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
             .map((controller) => controller.text)
             .where((text) => text.isNotEmpty)
             .toList(),
-        portMappings: _portMappings
-            .map((controller) => controller.text)
-            .where((text) => text.isNotEmpty)
-            .toList(),
+        portMappings: portMappings,
         groupPassword: _groupPasswordController.text,
         isServerEncrypted: false,
         protocol:
@@ -204,20 +219,27 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         encryptionAlgorithm: 'xor',
         deviceID: _deviceIDController.text,
         virtualNetworkCardName: _virtualNetworkCardNameController.text,
+        certMode: _certModeController.text.trim().isEmpty
+            ? 'skip'
+            : _certModeController.text.trim(),
         mtu: int.tryParse(_mtuController.text) ?? 1410,
         ports: const [],
         firstLatency: false,
         noInIpProxy: _builtInIpProxy == 'CLOSE',
+        noNat: _builtInIpProxy == 'CLOSE',
+        noPunch: _p2pPunch == 'CLOSE',
+        compress: _compressionMethod == 'lz4',
+        rtx: _rtx,
+        fec: _fec,
+        noTun: _noTun,
+        allowMapping: _allowPortMapping || portMappings.isNotEmpty,
+        tunnelPort: int.tryParse(_tunnelPortController.text.trim()) ?? 0,
         dns: const [],
         simulatedPacketLossRate: 0,
         simulatedLatency: 0,
         punchModel: 'all',
-        useChannelType: (_p2pSelected && _relaySelected) ||
-                (!_p2pSelected && !_relaySelected)
-            ? 'all'
-            : (_p2pSelected ? 'p2p' : 'relay'),
-        compressor:
-            '$_compressionMethod${_compressionMethod == 'zstd' ? ',$_compressionLevel' : ''}',
+        useChannelType: _p2pPunch == 'CLOSE' ? 'relay' : 'all',
+        compressor: _compressionMethod,
         allowWg: false,
         localDev: '',
         disableRelay: false,
@@ -411,7 +433,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                 const SizedBox(height: 20),
                 _buildDropdownField(
                   '压缩',
-                  ['none', 'lz4', 'zstd'],
+                  ['none', 'lz4'],
                   _compressionMethod,
                   (value) {
                     setState(() {
@@ -419,17 +441,6 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                     });
                   },
                 ),
-                if (_compressionMethod == 'zstd')
-                  _buildDropdownField(
-                    '压缩级别',
-                    List.generate(23, (index) => index.toString()),
-                    _compressionLevel.toString(),
-                    (value) {
-                      setState(() {
-                        _compressionLevel = int.parse(value!);
-                      });
-                    },
-                  ),
                 _buildSectionTitle('子网代理&端口映射'),
                 _buildDynamicTooltipFields(
                   'in-ip 对端路由',
@@ -448,11 +459,11 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                 _buildDynamicTooltipFields(
                   '端口映射',
                   _portMappings,
-                  '示例：tcp:0.0.0.0:80-10.26.0.10:80',
-                  48,
+                  '核心格式：tcp://0.0.0.0:80-10.26.0.10-10.26.0.10:80',
+                  72,
                   (value) {
-                    final regex =
-                        RegExp(r'^(tcp|udp):[^:]+:(\d{1,5})-[^:]+:(\d{1,5})$');
+                    final regex = RegExp(
+                        r'^(tcp|udp)://[^-]+:(\d{1,5})-\d{1,3}(?:\.\d{1,3}){3}-.+:(\d{1,5})$');
                     final match = regex.firstMatch(value);
 
                     if (match != null) {
@@ -462,9 +473,8 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                       if ((port1 >= 1 && port1 <= 65535) &&
                           (port2 >= 1 && port2 <= 65535)) {
                         return null;
-                      } else {
-                        throw const FormatException("端口取值1~65535");
                       }
+                      throw const FormatException("端口取值1~65535");
                     }
                     throw const FormatException("格式错误");
                   },
@@ -530,20 +540,89 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                         TextInputType.number,
                       ),
                       const SizedBox(height: 16),
-                      _buildFormFieldWithValidation(
-                        '传输模式',
-                        "仅中继",
-                        "仅直连",
-                        _relaySelected,
-                        _p2pSelected,
+                      _buildTextFormField(
+                        _certModeController,
+                        '证书验证',
+                        80,
+                        (value) {
+                          final text = value?.trim() ?? '';
+                          if (text.isEmpty ||
+                              text == 'skip' ||
+                              text == 'standard' ||
+                              RegExp(r'^finger:[0-9a-fA-F]{64}$')
+                                  .hasMatch(text)) {
+                            return null;
+                          }
+                          return '请输入 skip、standard 或 finger:<64位hex>';
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTextFormField(
+                        _tunnelPortController,
+                        'P2P 直连端口（可选）',
+                        null,
+                        (value) {
+                          final text = value?.trim() ?? '';
+                          if (text.isEmpty) {
+                            return null;
+                          }
+                          final port = int.tryParse(text);
+                          if (port == null || port < 1 || port > 65535) {
+                            return '端口取值1~65535';
+                          }
+                          return null;
+                        },
+                        TextInputType.number,
+                        true,
+                        false,
+                        null,
+                        '留空自动分配；需要固定本机直连端口时填写 1~65535',
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCheckboxField(
+                        '关闭 TUN',
+                        _noTun,
                         (value) {
                           setState(() {
-                            _relaySelected = value!;
+                            _noTun = value ?? false;
                           });
                         },
+                      ),
+                      _buildCheckboxField(
+                        'QUIC 增强通道',
+                        _rtx,
                         (value) {
                           setState(() {
-                            _p2pSelected = value!;
+                            _rtx = value ?? false;
+                          });
+                        },
+                      ),
+                      _buildCheckboxField(
+                        'FEC',
+                        _fec,
+                        (value) {
+                          setState(() {
+                            _fec = value ?? false;
+                          });
+                        },
+                      ),
+                      _buildCheckboxField(
+                        '允许端口映射',
+                        _allowPortMapping,
+                        (value) {
+                          setState(() {
+                            _allowPortMapping = value ?? false;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      _buildRadioGroup(
+                        'P2P 打洞',
+                        [('开启', 'OPEN'), ('关闭，仅中继', 'CLOSE')],
+                        _p2pPunch,
+                        (value) {
+                          setState(() {
+                            _p2pPunch = value!;
                           });
                         },
                       ),
@@ -560,8 +639,14 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                       ),
                       const SizedBox(height: 16),
                       _buildDynamicFields(
-                        'stun服务器',
-                        _stunServers,
+                        'UDP STUN服务器',
+                        _udpStunServers,
+                        _addController,
+                        _removeController,
+                      ),
+                      _buildDynamicFields(
+                        'TCP STUN服务器',
+                        _tcpStunServers,
                         _addController,
                         _removeController,
                       ),
@@ -594,12 +679,14 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     bool enabled = true,
     bool obscureText = false,
     Widget? suffixIcon,
+    String? helperText,
   ]) {
     return TextFormField(
       controller: controller,
       decoration: InputDecoration(
         labelText: labelText,
         suffixIcon: suffixIcon,
+        helperText: helperText,
       ),
       maxLength: maxLength,
       validator: validator,
@@ -706,6 +793,21 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     );
   }
 
+  Widget _buildCheckboxField(
+    String title,
+    bool value,
+    ValueChanged<bool?> onChanged,
+  ) {
+    return CheckboxListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      title: Text(title),
+      value: value,
+      onChanged: onChanged,
+      controlAffinity: ListTileControlAffinity.leading,
+    );
+  }
+
   Widget _buildDynamicFields(
     String label,
     List<TextEditingController> controllers,
@@ -713,6 +815,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     Function(int, List<TextEditingController>) removeController, {
     TextInputType? keyboardType,
     String? Function(String?)? validator,
+    int maxLength = 64,
   }) {
     return Column(
       children: [
@@ -726,7 +829,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                   controller: controller,
                   decoration: InputDecoration(
                       labelText: '$label${index == 0 ? '' : ' ---$index'}'),
-                  maxLength: 32,
+                  maxLength: maxLength,
                   keyboardType: keyboardType,
                   validator: validator,
                 ),
@@ -901,116 +1004,6 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
     );
   }
 
-  Widget _buildFormFieldWithValidation(
-    String title,
-    String valueName1,
-    String valueName2,
-    bool selectedValue1,
-    bool selectedValue2,
-    ValueChanged<bool?> onChanged1,
-    ValueChanged<bool?> onChanged2,
-  ) {
-    // 获取屏幕宽度，判断是否为竖屏或窄屏设备
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isNarrowScreen = screenWidth < 600;
-
-    return FormField<bool>(
-      builder: (state) {
-        return Padding(
-          padding: EdgeInsets.only(
-            top: isNarrowScreen ? 12.0 : 0,
-            bottom: isNarrowScreen ? 12.0 : 0,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 竖屏或窄屏设备使用Column布局
-              if (isNarrowScreen) ...[
-                Text(
-                  title,
-                  style: TextStyle(fontWeight: FontWeight.w500),
-                  textAlign: TextAlign.left,
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    alignment: WrapAlignment.start,
-                    crossAxisAlignment: WrapCrossAlignment.start,
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Checkbox(
-                            value: selectedValue1,
-                            onChanged: onChanged1,
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          Text(valueName1, style: TextStyle(fontSize: context.fontSmall)),
-                        ],
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Checkbox(
-                            value: selectedValue2,
-                            onChanged: onChanged2,
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          Text(valueName2, style: TextStyle(fontSize: context.fontSmall)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ] else ...[
-                // 宽屏设备使用Row布局
-                Row(
-                  children: [
-                    Text(title),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Checkbox(
-                            value: selectedValue1,
-                            onChanged: onChanged1,
-                          ),
-                          Text(valueName1),
-                          const SizedBox(width: 10),
-                          Checkbox(
-                            value: selectedValue2,
-                            onChanged: onChanged2,
-                          ),
-                          Text(valueName2),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              if (!selectedValue1 && !selectedValue2)
-                Padding(
-                  padding: const EdgeInsets.only(top: 5.0),
-                  child: Text(
-                    '至少勾选一个选项',
-                    style: TextStyle(color: Colors.red, fontSize: context.fontXSmall),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-      validator: (value) {
-        if (!selectedValue1 && !selectedValue2) {
-          return '至少勾选一个选项';
-        }
-        return null;
-      },
-    );
-  }
 }
 
 String? stripPrefix(String input, String prefix) {

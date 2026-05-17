@@ -67,6 +67,42 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     return status.trim().toLowerCase() == 'online';
   }
 
+  bool _isP2pRoute(RustRoute route) {
+    return route.protocol == 'P2P';
+  }
+
+  String _routeDisplayLabel(RustRoute route) {
+    switch (route.protocol) {
+      case 'P2P':
+        return 'P2P直连';
+      case 'Server':
+        return '服务器';
+      case 'ServerConnecting':
+        return '服务器连接中';
+      case 'ServerRelay':
+        return '服务器中继';
+      case 'ClientRelay':
+        return '客户端中继';
+      default:
+        return route.protocol;
+    }
+  }
+
+  Color _routeDisplayColor(RustRoute route) {
+    switch (route.protocol) {
+      case 'P2P':
+        return Colors.green;
+      case 'Server':
+      case 'ServerConnecting':
+        return Colors.blue;
+      case 'ClientRelay':
+        return Colors.purple;
+      case 'ServerRelay':
+      default:
+        return Colors.orange;
+    }
+  }
+
   Iterable<MapEntry<String, VntBox>> _activeVntEntries() {
     final scopedKey = widget.selectedConfig?.itemKey.trim() ?? '';
     if (scopedKey.isNotEmpty) {
@@ -550,12 +586,15 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     int rt = 0;
     String natType = '';
     String publicIp = '';
+    final passwordMismatch = device.clientSecret;
+    Color routeTagColor = Colors.orange;
 
     final vntBox = _findBoxForDevice(device);
     if (vntBox != null) {
       final route = vntBox.route(device.virtualIp);
       if (route != null) {
-        p2pRelay = route.metric == 1 ? 'P2P' : '中继';
+        p2pRelay = _routeDisplayLabel(route);
+        routeTagColor = _routeDisplayColor(route);
         rt = route.rt;
       }
 
@@ -567,6 +606,10 @@ class _LinkStatusPageState extends State<LinkStatusPage>
           publicIp = natInfo.publicIps.first;
         }
       }
+    }
+    if (passwordMismatch) {
+      p2pRelay = '密码不匹配';
+      routeTagColor = Colors.red;
     }
 
     // 获取延迟历史数据
@@ -674,9 +717,7 @@ class _LinkStatusPageState extends State<LinkStatusPage>
                           vertical: context.spacingXSmall / 2,
                         ),
                         decoration: BoxDecoration(
-                          color: p2pRelay == 'P2P'
-                              ? Colors.green.withOpacity(0.15)
-                              : Colors.orange.withOpacity(0.15),
+                          color: routeTagColor.withOpacity(0.15),
                           borderRadius:
                               BorderRadius.circular(context.spacingXSmall),
                         ),
@@ -685,9 +726,7 @@ class _LinkStatusPageState extends State<LinkStatusPage>
                           style: TextStyle(
                             fontSize: context.fontSmall,
                             fontWeight: FontWeight.w600,
-                            color: p2pRelay == 'P2P'
-                                ? Colors.green
-                                : Colors.orange,
+                            color: routeTagColor,
                           ),
                         ),
                       ),
@@ -860,7 +899,8 @@ class _LinkStatusPageState extends State<LinkStatusPage>
 
   // 路由卡片
   Widget _buildRouteCard(String destination, RustRoute route, bool isDark) {
-    final isP2P = route.metric == 1;
+    final routeColor = _routeDisplayColor(route);
+    final routeLabel = _routeDisplayLabel(route);
     final primaryColor = Theme.of(context).primaryColor;
 
     return Container(
@@ -903,17 +943,15 @@ class _LinkStatusPageState extends State<LinkStatusPage>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isP2P
-                      ? Colors.green.withOpacity(0.15)
-                      : Colors.orange.withOpacity(0.15),
+                  color: routeColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  isP2P ? 'P2P' : '中继',
+                  routeLabel,
                   style: TextStyle(
                     fontSize: context.fontXSmall,
                     fontWeight: FontWeight.w600,
-                    color: isP2P ? Colors.green : Colors.orange,
+                    color: routeColor,
                   ),
                 ),
               ),
@@ -1566,16 +1604,15 @@ class _LinkStatusPageState extends State<LinkStatusPage>
                           )
                         else
                           ...routeList.map((route) {
-                            final isP2P = route.metric == 1;
+                            final routeColor = _routeDisplayColor(route);
+                            final routeLabel = _routeDisplayLabel(route);
                             return Container(
                               margin: EdgeInsets.only(
                                   bottom: isLandscape ? 5 : (isMobile ? 6 : 8)),
                               padding: EdgeInsets.all(
                                   isLandscape ? 8 : (isMobile ? 10 : 12)),
                               decoration: BoxDecoration(
-                                color: isP2P
-                                    ? Colors.green.withOpacity(0.1)
-                                    : Colors.orange.withOpacity(0.1),
+                                color: routeColor.withOpacity(0.1),
                                 borderRadius:
                                     BorderRadius.circular(isLandscape ? 8 : 12),
                               ),
@@ -1595,22 +1632,18 @@ class _LinkStatusPageState extends State<LinkStatusPage>
                                               : (isMobile ? 3 : 4),
                                         ),
                                         decoration: BoxDecoration(
-                                          color: isP2P
-                                              ? Colors.green.withOpacity(0.2)
-                                              : Colors.orange.withOpacity(0.2),
+                                          color: routeColor.withOpacity(0.2),
                                           borderRadius:
                                               BorderRadius.circular(6),
                                         ),
                                         child: Text(
-                                          isP2P ? 'P2P' : 'Relay',
+                                          routeLabel,
                                           style: TextStyle(
                                             fontSize: isLandscape
                                                 ? 8
                                                 : (isMobile ? 9 : 11),
                                             fontWeight: FontWeight.w600,
-                                            color: isP2P
-                                                ? Colors.green
-                                                : Colors.orange,
+                                            color: routeColor,
                                           ),
                                         ),
                                       ),
@@ -1771,9 +1804,22 @@ class _LinkStatusPageState extends State<LinkStatusPage>
     Map<String, dynamic>? deviceInfo;
     for (var entry in _activeVntEntries()) {
       final vntBox = entry.value;
-      deviceInfo = vntBox.currentDevice();
-      deviceInfo['upStream'] = vntBox.upStream();
-      deviceInfo['downStream'] = vntBox.downStream();
+      final currentDevice = vntBox.currentDevice();
+      deviceInfo = {
+        'virtual_ip': currentDevice['virtualIp'],
+        'virtual_netmask': currentDevice['virtualNetmask'],
+        'virtual_gateway': currentDevice['virtualGateway'],
+        'virtual_network': currentDevice['virtualNetwork'],
+        'broadcast_ip': currentDevice['broadcastIp'],
+        'connect_server': currentDevice['connectServer'],
+        'status': currentDevice['status'],
+        'nat_type': currentDevice['natType'],
+        'public_ips': currentDevice['publicIps'],
+        'local_ipv4': currentDevice['localIpv4'],
+        'ipv6': currentDevice['ipv6'],
+        'up_stream': vntBox.upStream(),
+        'down_stream': vntBox.downStream(),
+      };
       break;
     }
 

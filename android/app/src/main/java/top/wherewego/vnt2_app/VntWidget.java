@@ -15,7 +15,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * VNT 桌面小组件基类
+ * VNT2 桌面小组件基类
  * 提供通用的小组件功能
  */
 public abstract class VntWidget extends AppWidgetProvider {

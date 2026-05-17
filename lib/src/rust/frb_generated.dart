@@ -1153,6 +1153,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_u_16(raw);
+  }
+
+  @protected
   VntConfig dco_decode_box_autoadd_vnt_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_vnt_config(raw);
@@ -1281,6 +1287,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_32(raw);
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_16(raw);
   }
 
   @protected
@@ -1539,37 +1551,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   VntConfig dco_decode_vnt_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 28)
-      throw Exception('unexpected arr length: expect 28 but see ${arr.length}');
+    if (arr.length != 22)
+      throw Exception('unexpected arr length: expect 22 but see ${arr.length}');
     return VntConfig(
-      tap: dco_decode_bool(arr[0]),
-      token: dco_decode_String(arr[1]),
-      deviceId: dco_decode_String(arr[2]),
-      name: dco_decode_String(arr[3]),
-      serverAddressStr: dco_decode_String(arr[4]),
-      nameServers: dco_decode_list_String(arr[5]),
-      stunServer: dco_decode_list_String(arr[6]),
-      inIps: dco_decode_list_record_u_32_u_32_string(arr[7]),
-      outIps: dco_decode_list_record_u_32_u_32(arr[8]),
-      password: dco_decode_opt_String(arr[9]),
-      mtu: dco_decode_opt_box_autoadd_u_32(arr[10]),
-      ip: dco_decode_opt_String(arr[11]),
-      noProxy: dco_decode_bool(arr[12]),
-      serverEncrypt: dco_decode_bool(arr[13]),
-      cipherModel: dco_decode_String(arr[14]),
-      finger: dco_decode_bool(arr[15]),
-      punchModel: dco_decode_String(arr[16]),
-      ports: dco_decode_opt_list_prim_u_16_strict(arr[17]),
-      firstLatency: dco_decode_bool(arr[18]),
-      deviceName: dco_decode_opt_String(arr[19]),
-      useChannelType: dco_decode_String(arr[20]),
-      packetLossRate: dco_decode_opt_box_autoadd_f_64(arr[21]),
-      packetDelay: dco_decode_u_32(arr[22]),
-      portMappingList: dco_decode_list_String(arr[23]),
-      compressor: dco_decode_String(arr[24]),
-      allowWireGuard: dco_decode_bool(arr[25]),
-      localDev: dco_decode_opt_String(arr[26]),
-      disableRelay: dco_decode_bool(arr[27]),
+      serverAddr: dco_decode_list_String(arr[0]),
+      certMode: dco_decode_String(arr[1]),
+      networkCode: dco_decode_String(arr[2]),
+      deviceId: dco_decode_String(arr[3]),
+      deviceName: dco_decode_String(arr[4]),
+      tunName: dco_decode_opt_String(arr[5]),
+      ip: dco_decode_opt_String(arr[6]),
+      password: dco_decode_opt_String(arr[7]),
+      noPunch: dco_decode_bool(arr[8]),
+      compress: dco_decode_bool(arr[9]),
+      rtx: dco_decode_bool(arr[10]),
+      fec: dco_decode_bool(arr[11]),
+      input: dco_decode_list_String(arr[12]),
+      output: dco_decode_list_String(arr[13]),
+      noNat: dco_decode_bool(arr[14]),
+      noTun: dco_decode_bool(arr[15]),
+      mtu: dco_decode_opt_box_autoadd_u_32(arr[16]),
+      portMapping: dco_decode_list_String(arr[17]),
+      allowPortMapping: dco_decode_bool(arr[18]),
+      udpStun: dco_decode_list_String(arr[19]),
+      tcpStun: dco_decode_list_String(arr[20]),
+      tunnelPort: dco_decode_opt_box_autoadd_u_16(arr[21]),
     );
   }
 
@@ -1668,6 +1674,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_32(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_16(deserializer));
   }
 
   @protected
@@ -1869,6 +1881,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_u_32(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_16(deserializer));
     } else {
       return null;
     }
@@ -2101,63 +2124,51 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   VntConfig sse_decode_vnt_config(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_tap = sse_decode_bool(deserializer);
-    var var_token = sse_decode_String(deserializer);
+    var var_serverAddr = sse_decode_list_String(deserializer);
+    var var_certMode = sse_decode_String(deserializer);
+    var var_networkCode = sse_decode_String(deserializer);
     var var_deviceId = sse_decode_String(deserializer);
-    var var_name = sse_decode_String(deserializer);
-    var var_serverAddressStr = sse_decode_String(deserializer);
-    var var_nameServers = sse_decode_list_String(deserializer);
-    var var_stunServer = sse_decode_list_String(deserializer);
-    var var_inIps = sse_decode_list_record_u_32_u_32_string(deserializer);
-    var var_outIps = sse_decode_list_record_u_32_u_32(deserializer);
-    var var_password = sse_decode_opt_String(deserializer);
-    var var_mtu = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_deviceName = sse_decode_String(deserializer);
+    var var_tunName = sse_decode_opt_String(deserializer);
     var var_ip = sse_decode_opt_String(deserializer);
-    var var_noProxy = sse_decode_bool(deserializer);
-    var var_serverEncrypt = sse_decode_bool(deserializer);
-    var var_cipherModel = sse_decode_String(deserializer);
-    var var_finger = sse_decode_bool(deserializer);
-    var var_punchModel = sse_decode_String(deserializer);
-    var var_ports = sse_decode_opt_list_prim_u_16_strict(deserializer);
-    var var_firstLatency = sse_decode_bool(deserializer);
-    var var_deviceName = sse_decode_opt_String(deserializer);
-    var var_useChannelType = sse_decode_String(deserializer);
-    var var_packetLossRate = sse_decode_opt_box_autoadd_f_64(deserializer);
-    var var_packetDelay = sse_decode_u_32(deserializer);
-    var var_portMappingList = sse_decode_list_String(deserializer);
-    var var_compressor = sse_decode_String(deserializer);
-    var var_allowWireGuard = sse_decode_bool(deserializer);
-    var var_localDev = sse_decode_opt_String(deserializer);
-    var var_disableRelay = sse_decode_bool(deserializer);
+    var var_password = sse_decode_opt_String(deserializer);
+    var var_noPunch = sse_decode_bool(deserializer);
+    var var_compress = sse_decode_bool(deserializer);
+    var var_rtx = sse_decode_bool(deserializer);
+    var var_fec = sse_decode_bool(deserializer);
+    var var_input = sse_decode_list_String(deserializer);
+    var var_output = sse_decode_list_String(deserializer);
+    var var_noNat = sse_decode_bool(deserializer);
+    var var_noTun = sse_decode_bool(deserializer);
+    var var_mtu = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_portMapping = sse_decode_list_String(deserializer);
+    var var_allowPortMapping = sse_decode_bool(deserializer);
+    var var_udpStun = sse_decode_list_String(deserializer);
+    var var_tcpStun = sse_decode_list_String(deserializer);
+    var var_tunnelPort = sse_decode_opt_box_autoadd_u_16(deserializer);
     return VntConfig(
-        tap: var_tap,
-        token: var_token,
+        serverAddr: var_serverAddr,
+        certMode: var_certMode,
+        networkCode: var_networkCode,
         deviceId: var_deviceId,
-        name: var_name,
-        serverAddressStr: var_serverAddressStr,
-        nameServers: var_nameServers,
-        stunServer: var_stunServer,
-        inIps: var_inIps,
-        outIps: var_outIps,
-        password: var_password,
-        mtu: var_mtu,
-        ip: var_ip,
-        noProxy: var_noProxy,
-        serverEncrypt: var_serverEncrypt,
-        cipherModel: var_cipherModel,
-        finger: var_finger,
-        punchModel: var_punchModel,
-        ports: var_ports,
-        firstLatency: var_firstLatency,
         deviceName: var_deviceName,
-        useChannelType: var_useChannelType,
-        packetLossRate: var_packetLossRate,
-        packetDelay: var_packetDelay,
-        portMappingList: var_portMappingList,
-        compressor: var_compressor,
-        allowWireGuard: var_allowWireGuard,
-        localDev: var_localDev,
-        disableRelay: var_disableRelay);
+        tunName: var_tunName,
+        ip: var_ip,
+        password: var_password,
+        noPunch: var_noPunch,
+        compress: var_compress,
+        rtx: var_rtx,
+        fec: var_fec,
+        input: var_input,
+        output: var_output,
+        noNat: var_noNat,
+        noTun: var_noTun,
+        mtu: var_mtu,
+        portMapping: var_portMapping,
+        allowPortMapping: var_allowPortMapping,
+        udpStun: var_udpStun,
+        tcpStun: var_tcpStun,
+        tunnelPort: var_tunnelPort);
   }
 
   @protected
@@ -2343,6 +2354,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_vnt_config(
       VntConfig self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2519,6 +2536,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_u_32(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_16(self, serializer);
     }
   }
 
@@ -2713,34 +2740,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_vnt_config(VntConfig self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_bool(self.tap, serializer);
-    sse_encode_String(self.token, serializer);
+    sse_encode_list_String(self.serverAddr, serializer);
+    sse_encode_String(self.certMode, serializer);
+    sse_encode_String(self.networkCode, serializer);
     sse_encode_String(self.deviceId, serializer);
-    sse_encode_String(self.name, serializer);
-    sse_encode_String(self.serverAddressStr, serializer);
-    sse_encode_list_String(self.nameServers, serializer);
-    sse_encode_list_String(self.stunServer, serializer);
-    sse_encode_list_record_u_32_u_32_string(self.inIps, serializer);
-    sse_encode_list_record_u_32_u_32(self.outIps, serializer);
-    sse_encode_opt_String(self.password, serializer);
-    sse_encode_opt_box_autoadd_u_32(self.mtu, serializer);
+    sse_encode_String(self.deviceName, serializer);
+    sse_encode_opt_String(self.tunName, serializer);
     sse_encode_opt_String(self.ip, serializer);
-    sse_encode_bool(self.noProxy, serializer);
-    sse_encode_bool(self.serverEncrypt, serializer);
-    sse_encode_String(self.cipherModel, serializer);
-    sse_encode_bool(self.finger, serializer);
-    sse_encode_String(self.punchModel, serializer);
-    sse_encode_opt_list_prim_u_16_strict(self.ports, serializer);
-    sse_encode_bool(self.firstLatency, serializer);
-    sse_encode_opt_String(self.deviceName, serializer);
-    sse_encode_String(self.useChannelType, serializer);
-    sse_encode_opt_box_autoadd_f_64(self.packetLossRate, serializer);
-    sse_encode_u_32(self.packetDelay, serializer);
-    sse_encode_list_String(self.portMappingList, serializer);
-    sse_encode_String(self.compressor, serializer);
-    sse_encode_bool(self.allowWireGuard, serializer);
-    sse_encode_opt_String(self.localDev, serializer);
-    sse_encode_bool(self.disableRelay, serializer);
+    sse_encode_opt_String(self.password, serializer);
+    sse_encode_bool(self.noPunch, serializer);
+    sse_encode_bool(self.compress, serializer);
+    sse_encode_bool(self.rtx, serializer);
+    sse_encode_bool(self.fec, serializer);
+    sse_encode_list_String(self.input, serializer);
+    sse_encode_list_String(self.output, serializer);
+    sse_encode_bool(self.noNat, serializer);
+    sse_encode_bool(self.noTun, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.mtu, serializer);
+    sse_encode_list_String(self.portMapping, serializer);
+    sse_encode_bool(self.allowPortMapping, serializer);
+    sse_encode_list_String(self.udpStun, serializer);
+    sse_encode_list_String(self.tcpStun, serializer);
+    sse_encode_opt_box_autoadd_u_16(self.tunnelPort, serializer);
   }
 }
 

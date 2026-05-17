@@ -468,7 +468,7 @@ class _ConfigListPageState extends State<ConfigListPage> {
               isConnected,
               Icons.dns_outlined,
               '服务器',
-              config.serverAddress,
+              config.effectiveServerList.join(', '),
             ),
             SizedBox(height: context.spacingMedium),
 
@@ -835,9 +835,8 @@ class _ConfigListPageState extends State<ConfigListPage> {
           SystemTrayManager().updateTooltip();
         }
       } else if (msg is RustErrorInfo) {
-        // Disconnect 和 Warn 类型不销毁连接，Rust 层会自动重连
-        if (msg.code == RustErrorType.disconnect ||
-            msg.code == RustErrorType.warn) {
+        // Disconnect 类型不销毁连接，Rust 层会自动重连
+        if (msg.code == RustErrorType.disconnect) {
           if (onece) {
             onece = false;
             Navigator.of(context).popUntil((route) => route.isFirst);
@@ -1006,9 +1005,7 @@ class _ConfigListPageState extends State<ConfigListPage> {
 
   void _handleConnectionError(
       RustErrorInfo msg, String configName, String itemKey) {
-    // Warn 类型不断开连接，只显示警告
-    if (msg.code != RustErrorType.warn &&
-        msg.code != RustErrorType.disconnect) {
+    if (msg.code != RustErrorType.disconnect) {
       vntManager.remove(itemKey);
       setState(() {});
     }
@@ -1040,8 +1037,8 @@ class _ConfigListPageState extends State<ConfigListPage> {
       case RustErrorType.networkError:
         errorMsg = '[$configName] 网络连接初始化失败';
         break;
-      case RustErrorType.warn:
-        errorMsg = msg.msg ?? '[$configName] 警告';
+      case RustErrorType.passwordError:
+        errorMsg = '[$configName] 组网密码错误';
         break;
       default:
         errorMsg = '[$configName] 发生未知错误: ${msg.msg}';

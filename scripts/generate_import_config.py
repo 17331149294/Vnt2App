@@ -12,56 +12,33 @@ def build_config(args: argparse.Namespace) -> dict:
     tun_name = args.tun_name or "vnt-tun-test"
     server_list = [args.server]
     return {
-        "version": "1.0",
+        "version": "2.0",
         "export_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "config": {
             "itemKey": f"cfg-{int(time.time() * 1000)}",
             "config_name": args.config_name,
             "network_code": args.network_code,
-            "token": args.network_code,
-            "name": device_name,
-            "display_device_name": device_name,
-            "device_name": tun_name,
-            "tun_name": tun_name,
             "device_id": device_id,
+            "device_name": device_name,
+            "tun_name": tun_name,
             "ip": "",
-            "server_address": args.server,
             "server": server_list,
-            "stun_server": [],
             "udp_stun": [],
             "tcp_stun": [],
-            "in_ips": [],
             "input": [],
-            "out_ips": [],
             "output": [],
-            "mapping": [],
             "port_mapping": [],
             "password": args.password,
-            "server_encrypt": False,
-            "protocol": "QUIC",
-            "finger": False,
-            "cipher_model": "aes_gcm",
             "cert_mode": args.cert_mode,
-            "ctrl_port": args.ctrl_port,
             "mtu": args.mtu,
-            "ports": [],
-            "first_latency": False,
-            "no_proxy": args.no_nat,
             "rtx": args.rtx,
             "compress": args.compress,
             "fec": args.fec,
             "no_punch": args.no_punch,
             "no_nat": args.no_nat,
-            "dns": [],
-            "packet_loss": 0.0,
-            "packet_delay": 0,
-            "punch_model": "all",
-            "use_channel": "all",
-            "compressor": "lz4" if args.compress else "none",
-            "allow_wire_guard": False,
-            "local_dev": "",
-            "local_ipv4": "",
-            "disable_relay": False,
+            "no_tun": False,
+            "allow_port_mapping": False,
+            "tunnel_port": 0,
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         },
     }
@@ -69,7 +46,7 @@ def build_config(args: argparse.Namespace) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate an importable VntcApp1.0 single-config JSON file."
+        description="Generate an importable VNT 2.0 single-config JSON file."
     )
     parser.add_argument(
         "--server",
@@ -87,7 +64,6 @@ def main() -> None:
     parser.add_argument("--device-id", default="", help="Optional fixed device ID.")
     parser.add_argument("--tun-name", default="vnt-tun-test", help="Virtual adapter name.")
     parser.add_argument("--cert-mode", default="skip", help="Certificate mode.")
-    parser.add_argument("--ctrl-port", type=int, default=21233, help="Control port.")
     parser.add_argument("--mtu", type=int, default=1400, help="MTU value.")
     parser.add_argument("--rtx", action="store_true", help="Enable QUIC RTX.")
     parser.add_argument("--compress", action="store_true", help="Enable LZ4 compression.")
@@ -96,7 +72,7 @@ def main() -> None:
     parser.add_argument("--no-nat", action="store_true", help="Disable built-in NAT.")
     parser.add_argument(
         "--output",
-        default="VntcApp1.0/testdata/import_server_115.231.35.105_2225.generated.json",
+        default="testdata/import_server_115.231.35.105_2225.generated.json",
         help="Output JSON path.",
     )
     args = parser.parse_args()

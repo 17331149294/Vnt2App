@@ -42,9 +42,11 @@ void main() {
     expect(config.ctrlPort, 21233);
     expect(config.certMode, 'skip');
     expect(config.effectiveCertMode, 'skip');
-    expect(config.coreNoProxy, isTrue);
-    expect(config.coreUseChannelType, 'all');
-    expect(config.coreCompressor, 'none');
+    expect(config.effectiveUdpStun, ['stun.miwifi.com']);
+    expect(config.effectiveTcpStun, isEmpty);
+    expect(config.noNat, isTrue);
+    expect(config.noPunch, isFalse);
+    expect(config.compress, isFalse);
   });
 
   test('2.0 风格配置字段可被旧客户端兼容层读取并保留', () {
@@ -66,7 +68,7 @@ void main() {
       'no_punch': true,
       'no_nat': true,
       'no_tun': true,
-      'allow_mapping': true,
+      'allow_port_mapping': true,
       'local_ipv4': '192.168.1.20',
       'updated_at': '2026-04-30T10:00:00Z',
     });
@@ -83,16 +85,15 @@ void main() {
     expect(config.effectiveTcpStun, ['stun2.example.com']);
     expect(config.ctrlPort, 22345);
     expect(config.effectiveCertMode, 'skip');
-    expect(config.coreNoProxy, isTrue);
-    expect(config.coreUseChannelType, 'relay');
-    expect(config.coreCompressor, 'lz4');
-    expect(config.resolvedLocalBindIpv4, '192.168.1.20');
-    expect(config.bridgeCipherModelPayload, contains('__vnt_bridge_json__='));
+    expect(config.noNat, isTrue);
+    expect(config.noPunch, isTrue);
+    expect(config.compress, isTrue);
 
     final json = config.toJson();
     expect(json['server'], ['quic://127.0.0.1:2222', 'tcp://127.0.0.1:2223']);
-    expect(json['ctrl_port'], 22345);
-    expect(json['local_ipv4'], '192.168.1.20');
+    expect(json['allow_port_mapping'], isTrue);
+    expect(json.containsKey('ctrl_port'), isFalse);
+    expect(json.containsKey('local_ipv4'), isFalse);
   });
 
   test('旧协议前缀与动态地址可归一化为 2.0 服务端语义', () {
