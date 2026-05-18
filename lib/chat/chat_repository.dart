@@ -600,6 +600,27 @@ class ChatRepository {
     return ChatMessage.fromMap(rows.first);
   }
 
+  Future<void> deleteMessage(String messageId) async {
+    final db = await _db;
+    final message = await getMessage(messageId);
+    if (message?.attachmentId != null) {
+      final attachment = await getAttachment(message!.attachmentId!);
+      if (attachment != null) {
+        await deleteFileIfExists(attachment.localPath);
+      }
+      await db.delete(
+        'attachments',
+        where: 'attachment_id = ?',
+        whereArgs: [message.attachmentId],
+      );
+    }
+    await db.delete(
+      'messages',
+      where: 'message_id = ?',
+      whereArgs: [messageId],
+    );
+  }
+
   Future<List<ChatMessage>> listMessages(String conversationId) async {
     final db = await _db;
     final rows = await db.query(

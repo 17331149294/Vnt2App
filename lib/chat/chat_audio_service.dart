@@ -4,8 +4,7 @@ import 'dart:typed_data';
 
 import 'package:audio_io/audio_io.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_sound/flutter_sound.dart';
-import 'package:record/record.dart';
+import 'package:flutter/services.dart';
 
 import 'chat_logger.dart';
 import 'chat_pcm_codec.dart';
@@ -154,16 +153,17 @@ class ChatAudioService {
 
   static ChatAudioBackend _createDefaultBackend() {
     if (kIsWeb) {
-      return _FlutterSoundChatAudioBackend(ChatLogger.instance);
+      return _UnsupportedChatAudioBackend(reason: '当前 Web 版本暂未接入聊天室音频');
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
+        return _AndroidChatAudioBackend(ChatLogger.instance);
       case TargetPlatform.iOS:
-        return _FlutterSoundChatAudioBackend(ChatLogger.instance);
+        return _UnsupportedChatAudioBackend(reason: '当前 iOS 版本暂未接入聊天室音频');
       case TargetPlatform.windows:
-        return _WindowsChatAudioBackend(ChatLogger.instance);
       case TargetPlatform.linux:
       case TargetPlatform.macOS:
+        return _AudioIoChatAudioBackend(ChatLogger.instance);
       case TargetPlatform.fuchsia:
         return _UnsupportedChatAudioBackend(
           reason: '当前${defaultTargetPlatform.name}版本暂未接入聊天室音频',
@@ -172,26 +172,26 @@ class ChatAudioService {
   }
 }
 
-class _FlutterSoundChatAudioBackend implements ChatAudioBackend {
-  _FlutterSoundChatAudioBackend(this._logger);
+class _AndroidChatAudioBackend implements ChatAudioBackend {
+  _AndroidChatAudioBackend(this._logger);
+
+  static const MethodChannel _methodChannel =
+      MethodChannel('top.wherewego.vnt2/chat_audio');
+  static const EventChannel _micStreamChannel =
+      EventChannel('top.wherewego.vnt2/chat_audio/mic_stream');
 
   final ChatLogger _logger;
-  final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
-  final FlutterSoundPlayer _voicePlayer = FlutterSoundPlayer();
-  final FlutterSoundPlayer _streamPlayer = FlutterSoundPlayer();
-
+  StreamSubscription<dynamic>? _micSubscription;
   bool _initialized = false;
-  bool _streamPlayerStarted = false;
   bool _isVoiceRecording = false;
+  bool _isVoicePlaying = false;
   bool _isStreamingMic = false;
+  bool _isIncomingStreamPlaying = false;
   String? _activeVoicePath;
   String? _lastError;
-  StreamController<List<Int16List>>? _streamController;
-  StreamSubscription<List<Int16List>>? _streamSubscription;
-  Future<void> _playbackQueue = Future<void>.value();
 
   @override
-  String get name => 'flutter_sound';
+  String get name => 'android_audio_record_track';
 
   @override
   ChatAudioCapabilities get capabilities => const ChatAudioCapabilities(
@@ -211,13 +211,13 @@ class _FlutterSoundChatAudioBackend implements ChatAudioBackend {
   bool get isVoiceRecording => _isVoiceRecording;
 
   @override
-  bool get isVoicePlaying => !_voicePlayer.isStopped;
+  bool get isVoicePlaying => _isVoicePlaying;
 
   @override
   bool get isStreamingMic => _isStreamingMic;
 
   @override
-  bool get isIncomingStreamPlaying => _streamPlayerStarted;
+  bool get isIncomingStreamPlaying => _isIncomingStreamPlaying;
 
   @override
   String? get lastError => _lastError;
@@ -233,45 +233,41 @@ class _FlutterSoundChatAudioBackend implements ChatAudioBackend {
     if (_initialized) {
       return;
     }
-    await _recorder.openRecorder();
-    await _voicePlayer.openPlayer();
-    await _streamPlayer.openPlayer();
-    await _recorder.setSubscriptionDuration(const Duration(milliseconds: 100));
-    _initialized = true;
-    await _logger.info('audio', '音频服务初始化完成', extra: {
-      'backend': name,
-      'voiceCodec': preferredVoiceCodecLabel,
+    await _methodChannel.invokeMethod<void>('init', {
       'sampleRate': ChatAudioService.sampleRate,
       'numChannels': ChatAudioService.numChannels,
-      'bufferSize': ChatAudioService.bufferSize,
+    });
+    _initialized = true;
+    await _logger.info('audio', 'Android 音频服务初始化完成', extra: {
+      'backend': name,
+      'voiceCodec': preferredVoiceCodecLabel,
     });
   }
 
   @override
   Future<void> startVoiceNoteRecording(String targetPath) async {
     await init();
-    if (_isStreamingMic) {
-      throw StateError('正在实时语音中，不能录制语音消息');
-    }
-    _activeVoicePath = targetPath;
-    _isVoiceRecording = true;
-    try {
-      await _recorder.startRecorder(
-        codec: Codec.pcm16WAV,
-        toFile: targetPath,
-        sampleRate: ChatAudioService.sampleRate,
-        numChannels: ChatAudioService.numChannels,
+    if (_isStreamingMic || _isIncomingStreamPlaying) {
+      throw const ChatAudioException(
+        code: 'LIVE_AUDIO_BUSY',
+        message: '实时语音进行中，不能录制语音消息',
+        userMessage: '当前正在语音中，请先退出实时语音再录制语音消息',
       );
+    }
+    try {
+      await _methodChannel.invokeMethod<void>('startVoiceRecord', {
+        'path': targetPath,
+      });
+      _activeVoicePath = targetPath;
+      _isVoiceRecording = true;
       _lastError = null;
-      await _logger.info('audio', '开始录制语音消息', extra: {
+      await _logger.info('audio', '开始 Android 语音消息录制', extra: {
         'backend': name,
         'targetPath': targetPath,
-        'codec': preferredVoiceCodecLabel,
       });
     } catch (error) {
       _isVoiceRecording = false;
-      _lastError = error.toString();
-      rethrow;
+      throw await _mapAndLogError('开始录制语音消息', error);
     }
   }
 
@@ -280,54 +276,58 @@ class _FlutterSoundChatAudioBackend implements ChatAudioBackend {
     if (!_isVoiceRecording) {
       return null;
     }
-    final result = await _recorder.stopRecorder();
-    _isVoiceRecording = false;
-    _lastError = null;
-    await _logger.info('audio', '停止录制语音消息', extra: {
-      'backend': name,
-      'resultPath': result ?? _activeVoicePath,
-    });
-    return result ?? _activeVoicePath;
+    try {
+      final result = await _methodChannel.invokeMethod<String>(
+        'stopVoiceRecord',
+      );
+      _isVoiceRecording = false;
+      _lastError = null;
+      return result ?? _activeVoicePath;
+    } catch (error) {
+      _isVoiceRecording = false;
+      throw await _mapAndLogError('停止录制语音消息', error);
+    }
   }
 
   @override
   Future<void> cancelVoiceNoteRecording() async {
-    final path = await stopVoiceNoteRecording();
-    _activeVoicePath = null;
-    if (path != null && path.isNotEmpty) {
-      await _recorder.deleteRecord(fileName: path);
-      await _logger.info('audio', '取消语音消息录制并删除临时文件', extra: {
-        'backend': name,
-        'path': path,
-      });
+    if (!_isVoiceRecording) {
+      return;
+    }
+    try {
+      await _methodChannel.invokeMethod<void>('cancelVoiceRecord');
+      _isVoiceRecording = false;
+      _activeVoicePath = null;
+      _lastError = null;
+    } catch (error) {
+      _isVoiceRecording = false;
+      throw await _mapAndLogError('取消录制语音消息', error);
     }
   }
 
   @override
   Future<void> playVoiceFile(String filePath) async {
     await init();
-    if (!_voicePlayer.isStopped) {
-      await _voicePlayer.stopPlayer();
+    try {
+      _isVoicePlaying = true;
+      await _methodChannel.invokeMethod<void>('playVoiceFile', {
+        'path': filePath,
+      });
+      _lastError = null;
+    } catch (error) {
+      throw await _mapAndLogError('播放语音消息', error);
+    } finally {
+      _isVoicePlaying = false;
     }
-    await _voicePlayer.startPlayer(
-      fromURI: filePath,
-      codec: _guessCodecFromPath(filePath),
-    );
-    _lastError = null;
-    await _logger.info('audio', '播放语音消息', extra: {
-      'backend': name,
-      'filePath': filePath,
-    });
   }
 
   @override
   Future<void> stopVoicePlayback() async {
-    if (!_voicePlayer.isStopped) {
-      await _voicePlayer.stopPlayer();
-      await _logger.info('audio', '停止语音消息播放', extra: {
-        'backend': name,
-      });
+    if (!_isVoicePlaying) {
+      return;
     }
+    await _methodChannel.invokeMethod<void>('stopVoicePlayback');
+    _isVoicePlaying = false;
   }
 
   @override
@@ -336,43 +336,35 @@ class _FlutterSoundChatAudioBackend implements ChatAudioBackend {
   ) async {
     await init();
     if (_isVoiceRecording) {
-      throw StateError('正在录制语音消息，不能开启实时语音');
+      throw const ChatAudioException(
+        code: 'VOICE_NOTE_BUSY',
+        message: '语音消息录制中，不能开启实时语音',
+        userMessage: '当前正在录制语音消息，请先结束录制再进入实时语音',
+      );
     }
     if (_isStreamingMic) {
       return;
     }
-    _streamController?.close();
-    _streamController = StreamController<List<Int16List>>();
-    _streamSubscription = _streamController!.stream.listen((buffers) {
-      if (buffers.isEmpty) {
-        return;
-      }
-      final samples = buffers.first;
-      final bytes = Uint8List.view(
-        samples.buffer,
-        samples.offsetInBytes,
-        samples.lengthInBytes,
-      );
-      onAudioBytes(Uint8List.fromList(bytes));
-    });
-    _isStreamingMic = true;
     try {
-      await _recorder.startRecorder(
-        codec: Codec.pcm16,
-        sampleRate: ChatAudioService.sampleRate,
-        numChannels: ChatAudioService.numChannels,
-        bufferSize: ChatAudioService.bufferSize,
-        toStreamInt16: _streamController!.sink,
-      );
-      _lastError = null;
-      await _logger.info('audio', '开始实时语音麦克风采集', extra: {
-        'backend': name,
-        'codec': 'pcm16/mono/16khz',
+      _micSubscription =
+          _micStreamChannel.receiveBroadcastStream().listen((event) {
+        if (event is Uint8List) {
+          onAudioBytes(event);
+        } else if (event is ByteData) {
+          onAudioBytes(event.buffer.asUint8List(
+            event.offsetInBytes,
+            event.lengthInBytes,
+          ));
+        }
       });
+      await _methodChannel.invokeMethod<void>('startMicrophoneStream');
+      _isStreamingMic = true;
+      _lastError = null;
     } catch (error) {
+      await _micSubscription?.cancel();
+      _micSubscription = null;
       _isStreamingMic = false;
-      _lastError = error.toString();
-      rethrow;
+      throw await _mapAndLogError('启动实时麦克风采集', error);
     }
   }
 
@@ -381,113 +373,106 @@ class _FlutterSoundChatAudioBackend implements ChatAudioBackend {
     if (!_isStreamingMic) {
       return;
     }
-    await _recorder.stopRecorder();
-    await _streamSubscription?.cancel();
-    await _streamController?.close();
-    _streamSubscription = null;
-    _streamController = null;
+    await _methodChannel.invokeMethod<void>('stopMicrophoneStream');
+    await _micSubscription?.cancel();
+    _micSubscription = null;
     _isStreamingMic = false;
-    await _logger.info('audio', '停止实时语音麦克风采集', extra: {
-      'backend': name,
-    });
   }
 
   @override
   Future<void> startIncomingStreamPlayback() async {
     await init();
-    if (_streamPlayerStarted) {
+    if (_isIncomingStreamPlaying) {
       return;
     }
-    await _streamPlayer.startPlayerFromStream(
-      codec: Codec.pcm16,
-      interleaved: false,
-      sampleRate: ChatAudioService.sampleRate,
-      numChannels: ChatAudioService.numChannels,
-      bufferSize: ChatAudioService.bufferSize,
-    );
-    _streamPlayerStarted = true;
+    await _methodChannel.invokeMethod<void>('startIncomingPlayback');
+    _isIncomingStreamPlaying = true;
     _lastError = null;
-    await _logger.info('audio', '启动实时语音播放器', extra: {
-      'backend': name,
-      'codec': 'pcm16/mono/16khz',
-    });
   }
 
   @override
   Future<void> stopIncomingStreamPlayback() async {
-    if (!_streamPlayerStarted) {
+    if (!_isIncomingStreamPlaying) {
       return;
     }
-    await _streamPlayer.stopPlayer();
-    _streamPlayerStarted = false;
-    _playbackQueue = Future<void>.value();
-    await _logger.info('audio', '停止实时语音播放器', extra: {
-      'backend': name,
-    });
+    await _methodChannel.invokeMethod<void>('stopIncomingPlayback');
+    _isIncomingStreamPlaying = false;
   }
 
   @override
   Future<void> playIncomingPcm(Uint8List bytes) async {
     await startIncomingStreamPlayback();
-    final data = Int16List.view(
-      bytes.buffer,
-      bytes.offsetInBytes,
-      bytes.lengthInBytes ~/ 2,
-    );
-    _playbackQueue = _playbackQueue.then((_) async {
-      if (!_streamPlayerStarted) {
-        return;
-      }
-      await _streamPlayer.feedInt16FromStream([Int16List.fromList(data)]);
-    }).catchError((_) {});
-    await _playbackQueue;
+    await _methodChannel.invokeMethod<void>('playIncomingPcm', bytes);
   }
 
   @override
   Future<void> dispose() async {
-    if (!_initialized) {
-      return;
+    if (_isVoiceRecording) {
+      await cancelVoiceNoteRecording();
     }
     await stopVoicePlayback();
-    await stopIncomingStreamPlayback();
     await stopMicrophoneStream();
-    if (_isVoiceRecording) {
-      await stopVoiceNoteRecording();
-    }
-    await _voicePlayer.closePlayer();
-    await _streamPlayer.closePlayer();
-    await _recorder.closeRecorder();
+    await stopIncomingStreamPlayback();
+    await _methodChannel.invokeMethod<void>('dispose');
     _initialized = false;
-    await _logger.info('audio', '音频服务已释放', extra: {
-      'backend': name,
-    });
   }
 
-  Codec _guessCodecFromPath(String filePath) {
-    final lower = filePath.toLowerCase();
-    if (lower.endsWith('.opus') || lower.endsWith('.ogg')) {
-      return Codec.opusOGG;
+  Future<ChatAudioException> _mapAndLogError(
+    String action,
+    Object error,
+  ) async {
+    final mapped = _mapError(action, error);
+    _lastError = mapped.message;
+    await _logger.error('audio', '$action失败', extra: {
+      'backend': name,
+      'error': mapped.toString(),
+    });
+    return mapped;
+  }
+
+  ChatAudioException _mapError(String action, Object error) {
+    if (error is ChatAudioException) {
+      return error;
     }
-    if (lower.endsWith('.wav')) {
-      return Codec.pcm16WAV;
+    if (error is PlatformException) {
+      if (error.code == 'MICROPHONE_PERMISSION_DENIED') {
+        return const ChatAudioException(
+          code: 'MICROPHONE_PERMISSION_DENIED',
+          message: 'Android 麦克风权限被拒绝',
+          userMessage: '请允许麦克风权限后再使用语音',
+          isPermissionDenied: true,
+        );
+      }
+      return ChatAudioException(
+        code: error.code,
+        message: error.message ?? error.toString(),
+        userMessage: '$action失败: ${error.message ?? error.code}',
+      );
     }
-    return Codec.defaultCodec;
+    return ChatAudioException(
+      code: 'ANDROID_AUDIO_ERROR',
+      message: error.toString(),
+      userMessage: '$action失败，请检查麦克风或扬声器是否可用',
+    );
   }
 }
 
-class _WindowsChatAudioBackend implements ChatAudioBackend {
-  _WindowsChatAudioBackend(this._logger);
+class _AudioIoChatAudioBackend implements ChatAudioBackend {
+  _AudioIoChatAudioBackend(this._logger);
 
   final ChatLogger _logger;
   final AudioIo _audioIo = AudioIo.instance;
-  final AudioRecorder _recorder = AudioRecorder();
   final Downsample48kTo16kPcm16 _downsampler = Downsample48kTo16kPcm16();
+  final Downsample48kTo16kPcm16 _voiceRecordDownsampler =
+      Downsample48kTo16kPcm16();
   final Upsample16kPcm16To48kFloat64 _upsampler =
       Upsample16kPcm16To48kFloat64();
   final Upsample16kPcm16To48kFloat64 _voiceUpsampler =
       Upsample16kPcm16To48kFloat64();
   Future<void>? _voicePlaybackTask;
   StreamSubscription<List<double>>? _micSubscription;
+  StreamSubscription<List<double>>? _voiceRecordSubscription;
+  BytesBuilder? _voiceRecordBytes;
 
   bool _initialized = false;
   bool _liveEngineStarted = false;
@@ -503,7 +488,7 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
   int _receivedPackets = 0;
 
   @override
-  String get name => 'windows_audio_io_record';
+  String get name => '${defaultTargetPlatform.name}_audio_io';
 
   @override
   ChatAudioCapabilities get capabilities => const ChatAudioCapabilities(
@@ -567,14 +552,16 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
     try {
       _activeVoicePath = targetPath;
       _isVoiceRecording = true;
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: ChatAudioService.sampleRate,
-          numChannels: ChatAudioService.numChannels,
-        ),
-        path: targetPath,
-      );
+      _voiceRecordBytes = BytesBuilder(copy: false);
+      _voiceRecordDownsampler.reset();
+      await _ensureLiveEngineStarted();
+      await _voiceRecordSubscription?.cancel();
+      _voiceRecordSubscription = _audioIo.input.listen((samples) {
+        final packet = _voiceRecordDownsampler.process(samples);
+        if (packet.isNotEmpty) {
+          _voiceRecordBytes?.add(packet);
+        }
+      });
       _lastError = null;
       await _logger.info('audio', '开始录制语音消息', extra: {
         'backend': name,
@@ -598,14 +585,25 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
     if (!_isVoiceRecording) {
       return null;
     }
-    final result = await _recorder.stop();
+    await _voiceRecordSubscription?.cancel();
+    _voiceRecordSubscription = null;
+    final result = _activeVoicePath;
+    final pcmBytes = _voiceRecordBytes?.takeBytes() ?? Uint8List(0);
+    _voiceRecordBytes = null;
+    if (result != null && result.isNotEmpty) {
+      await File(result).writeAsBytes(
+        _encodePcm16Wav(pcmBytes, ChatAudioService.sampleRate),
+        flush: true,
+      );
+    }
     _isVoiceRecording = false;
     _lastError = null;
+    await _stopLiveEngineIfIdle();
     await _logger.info('audio', '停止录制语音消息', extra: {
       'backend': name,
-      'resultPath': result ?? _activeVoicePath,
+      'resultPath': result,
     });
-    return result ?? _activeVoicePath;
+    return result;
   }
 
   @override
@@ -613,13 +611,20 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
     if (!_isVoiceRecording) {
       return;
     }
-    await _recorder.cancel();
+    await _voiceRecordSubscription?.cancel();
+    _voiceRecordSubscription = null;
+    final path = _activeVoicePath;
     _activeVoicePath = null;
+    _voiceRecordBytes = null;
     _isVoiceRecording = false;
     _lastError = null;
+    if (path != null && path.isNotEmpty) {
+      await File(path).delete().catchError((_) => File(path));
+    }
     await _logger.info('audio', '取消语音消息录制', extra: {
       'backend': name,
     });
+    await _stopLiveEngineIfIdle();
   }
 
   @override
@@ -810,7 +815,7 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
     await stopMicrophoneStream();
     await stopIncomingStreamPlayback();
     await _micSubscription?.cancel();
-    await _recorder.dispose();
+    await _voiceRecordSubscription?.cancel();
     _initialized = false;
   }
 
@@ -944,6 +949,7 @@ class _WindowsChatAudioBackend implements ChatAudioBackend {
     if (!_liveEngineStarted ||
         _isIncomingStreamPlaying ||
         _isStreamingMic ||
+        _isVoiceRecording ||
         _isVoicePlaying) {
       return;
     }
@@ -1013,6 +1019,39 @@ class _Pcm16Wav {
 
   final Int16List samples;
   final int sampleRate;
+}
+
+Uint8List _encodePcm16Wav(Uint8List pcmBytes, int sampleRate) {
+  final dataSize = pcmBytes.length;
+  final fileSize = 36 + dataSize;
+  final bytes = Uint8List(44 + dataSize);
+  final data = ByteData.sublistView(bytes);
+
+  void writeAscii(int offset, String value) {
+    for (var i = 0; i < value.length; i++) {
+      bytes[offset + i] = value.codeUnitAt(i);
+    }
+  }
+
+  writeAscii(0, 'RIFF');
+  data.setUint32(4, fileSize, Endian.little);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  data.setUint32(16, 16, Endian.little);
+  data.setUint16(20, 1, Endian.little);
+  data.setUint16(22, ChatAudioService.numChannels, Endian.little);
+  data.setUint32(24, sampleRate, Endian.little);
+  data.setUint32(
+    28,
+    sampleRate * ChatAudioService.numChannels * 2,
+    Endian.little,
+  );
+  data.setUint16(32, ChatAudioService.numChannels * 2, Endian.little);
+  data.setUint16(34, 16, Endian.little);
+  writeAscii(36, 'data');
+  data.setUint32(40, dataSize, Endian.little);
+  bytes.setRange(44, bytes.length, pcmBytes);
+  return bytes;
 }
 
 class _UnsupportedChatAudioBackend implements ChatAudioBackend {

@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vnt2_app/theme/app_theme.dart';
@@ -25,14 +22,6 @@ class AboutPage extends StatefulWidget {
 class _AboutPageState extends State<AboutPage> {
   String _version = '2.0.0';
   String _buildNumber = '1';
-  bool _latestVersionLoading = false;
-  String? _latestVersion;
-  String? _latestVersionError;
-  bool _latestVersionRequested = false;
-  static const String _latestReleaseApiUrl =
-      'https://api.github.com/repos/lmq8267/Vnt2App/releases/latest';
-  static const String _tagsApiUrl =
-      'https://api.github.com/repos/lmq8267/Vnt2App/tags?per_page=1';
   static const String _releasesUrl =
       'https://github.com/lmq8267/Vnt2App/releases';
 
@@ -40,21 +29,6 @@ class _AboutPageState extends State<AboutPage> {
   void initState() {
     super.initState();
     _loadVersion();
-    _loadLatestVersionIfNeeded();
-  }
-
-  @override
-  void didUpdateWidget(covariant AboutPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _loadLatestVersionIfNeeded();
-  }
-
-  void _loadLatestVersionIfNeeded() {
-    if (!widget.isActive || _latestVersionRequested) {
-      return;
-    }
-    _latestVersionRequested = true;
-    _loadLatestVersion();
   }
 
   Future<void> _loadVersion() async {
@@ -74,117 +48,9 @@ class _AboutPageState extends State<AboutPage> {
     }
   }
 
-  Future<void> _loadLatestVersion({bool force = false}) async {
-    if (_latestVersionLoading) {
-      return;
-    }
-    if (!force && _latestVersion != null) {
-      return;
-    }
-    setState(() {
-      _latestVersionLoading = true;
-      _latestVersionError = null;
-      if (force) {
-        _latestVersion = null;
-      }
-    });
-    try {
-      final latestVersion = await _fetchLatestVersion();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _latestVersion = latestVersion;
-        _latestVersionLoading = false;
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _latestVersionError = _latestVersionErrorMessage(error);
-        _latestVersionLoading = false;
-      });
-    }
-  }
-
-  Future<String> _fetchLatestVersion() async {
-    try {
-      final release = await _getJson(Uri.parse(_latestReleaseApiUrl));
-      if (release is Map) {
-        final tagName = release['tag_name']?.toString().trim() ?? '';
-        if (tagName.isNotEmpty) {
-          return tagName;
-        }
-        final name = release['name']?.toString().trim() ?? '';
-        if (name.isNotEmpty) {
-          return name;
-        }
-      }
-    } catch (error) {
-      final text = error.toString();
-      if (text.contains('速率限制') ||
-          text.contains('403') ||
-          text.contains('429')) {
-        rethrow;
-      }
-    }
-    final tags = await _getJson(Uri.parse(_tagsApiUrl));
-    if (tags is List && tags.isNotEmpty) {
-      final first = tags.first;
-      if (first is Map) {
-        final tagName = first['name']?.toString().trim() ?? '';
-        if (tagName.isNotEmpty) {
-          return tagName;
-        }
-      }
-    }
-    throw const FormatException('GitHub 未返回可用版本号');
-  }
-
-  Future<dynamic> _getJson(Uri uri) async {
-    final client = HttpClient();
-    try {
-      client.connectionTimeout = const Duration(seconds: 8);
-      final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'Vnt2App');
-      final response = await request.close();
-      final body = await utf8.decodeStream(response);
-      if (response.statusCode == HttpStatus.forbidden ||
-          response.statusCode == HttpStatus.tooManyRequests) {
-        throw const HttpException('GitHub API 速率限制，请稍后重试');
-      }
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException('GitHub API 返回 ${response.statusCode}');
-      }
-      return jsonDecode(body);
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  String _latestVersionErrorMessage(Object error) {
-    final text = error.toString();
-    if (text.contains('速率限制') ||
-        text.contains('rate limit') ||
-        text.contains('403') ||
-        text.contains('429')) {
-      return 'GitHub 限流，稍后重试';
-    }
-    if (text.contains('SocketException') ||
-        text.contains('HandshakeException') ||
-        text.contains('Failed host lookup') ||
-        text.contains('Connection')) {
-      return '网络不可用，点击重试';
-    }
-    return '获取失败，点击重试';
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryColor = Theme.of(context).primaryColor;
     final screenWidth = MediaQuery.of(context).size.width;
     final isWideScreen = screenWidth > 600;
 
@@ -199,7 +65,7 @@ class _AboutPageState extends State<AboutPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 页面头部
-              _buildHeader(isDark, isWideScreen),
+              _buildHeader(isDark),
               SizedBox(height: context.spacingXLarge),
 
               // 应用信息卡片
@@ -228,7 +94,7 @@ class _AboutPageState extends State<AboutPage> {
     );
   }
 
-  Widget _buildHeader(bool isDark, bool isWideScreen) {
+  Widget _buildHeader(bool isDark) {
     final primaryColor = Theme.of(context).primaryColor;
     return Row(
       children: [
@@ -334,37 +200,27 @@ class _AboutPageState extends State<AboutPage> {
           ),
           SizedBox(height: context.spacingXSmall),
 
-          // 版本号 - 可点击跳转到 GitHub
-          Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: context.spacingSmall,
-            runSpacing: context.spacingXSmall,
-            children: [
-              InkWell(
-                onTap: () => _launchUrl(_releasesUrl),
+          InkWell(
+            onTap: () => _launchUrl(_releasesUrl),
+            borderRadius: BorderRadius.circular(context.cardRadius),
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: context.spacingMedium,
+                vertical: context.spacingXSmall,
+              ),
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(context.cardRadius),
-                child: Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: context.spacingMedium,
-                    vertical: context.spacingXSmall,
-                  ),
-                  decoration: BoxDecoration(
-                    color: primaryColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(context.cardRadius),
-                  ),
-                  child: Text(
-                    'v$_version',
-                    style: TextStyle(
-                      fontSize: context.fontBody,
-                      fontWeight: FontWeight.w500,
-                      color: primaryColor,
-                    ),
-                  ),
+              ),
+              child: Text(
+                'v$_version',
+                style: TextStyle(
+                  fontSize: context.fontBody,
+                  fontWeight: FontWeight.w500,
+                  color: primaryColor,
                 ),
               ),
-              _buildLatestVersionBadge(),
-            ],
+            ),
           ),
           SizedBox(height: context.spacingLarge),
 
@@ -375,85 +231,6 @@ class _AboutPageState extends State<AboutPage> {
             style: TextStyle(
               fontSize: context.fontMedium,
               color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLatestVersionBadge() {
-    final primaryColor = Theme.of(context).primaryColor;
-    if (!widget.isActive) {
-      return _buildLatestVersionStatusBadge(
-        primaryColor,
-        label: '最新版本',
-        icon: Icons.new_releases_outlined,
-      );
-    }
-    if (_latestVersionLoading) {
-      return _buildLatestVersionStatusBadge(
-        primaryColor,
-        label: '最新版本获取中',
-        icon: Icons.sync,
-      );
-    }
-    if (_latestVersion != null && _latestVersion!.isNotEmpty) {
-      return Tooltip(
-        message: '查看 GitHub 最新版本',
-        child: InkWell(
-          onTap: () => _launchUrl(_releasesUrl),
-          borderRadius: BorderRadius.circular(4),
-          child: _buildLatestVersionStatusBadge(
-            primaryColor,
-            label: '最新版本 $_latestVersion',
-            icon: Icons.new_releases_outlined,
-          ),
-        ),
-      );
-    }
-    return Tooltip(
-      message: _latestVersionError ?? '点击重试获取最新版本',
-      child: InkWell(
-        onTap: () => _loadLatestVersion(force: true),
-        borderRadius: BorderRadius.circular(4),
-        child: _buildLatestVersionStatusBadge(
-          primaryColor,
-          label: _latestVersionError ?? '获取失败，点击重试',
-          icon: Icons.refresh,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLatestVersionStatusBadge(
-    Color primaryColor, {
-    required String label,
-    required IconData icon,
-  }) {
-    return Container(
-      height: 22,
-      padding: EdgeInsets.symmetric(horizontal: context.spacingSmall),
-      decoration: BoxDecoration(
-        color: primaryColor.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: primaryColor.withOpacity(0.18)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: context.iconXSmall,
-            color: primaryColor,
-          ),
-          SizedBox(width: context.spacingXSmall),
-          Text(
-            label,
-            style: TextStyle(
-              color: primaryColor,
-              fontSize: context.fontSmall,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ],

@@ -137,6 +137,7 @@ public class MainActivity extends FlutterActivity {
 
         // Flutter 初始化完成后，立即更新通知服务状态
         VntNotificationService.updateNotification(this);
+        AndroidChatAudioBridge.init(flutterEngine, this);
 
         // File Channel - 用于文件保存
         fileChannel = new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), FILE_CHANNEL);

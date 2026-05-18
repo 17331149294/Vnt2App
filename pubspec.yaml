@@ -64,8 +64,6 @@ dependencies:
   crypto: ^3.0.7
   mime: ^1.0.6
   audio_io: ^0.3.2
-  flutter_sound: ^9.28.0
-  record: ^6.0.0
 
 dependency_overrides:
 dev_dependencies:

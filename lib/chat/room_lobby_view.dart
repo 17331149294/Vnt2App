@@ -70,7 +70,6 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
         _showStatusSnackBarIfNeeded(context);
         return LayoutBuilder(
           builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 900;
             final horizontalPadding = constraints.maxWidth < 520 ? 10.0 : 16.0;
             final sections = [
               _buildSectionCard(
@@ -113,31 +112,44 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                 const SizedBox(height: 14),
                 _buildDebugToolsCard(context),
                 const SizedBox(height: 14),
-                if (wide)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          children: [
-                            sections[0],
-                            const SizedBox(height: 14),
-                            sections[2],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(child: sections[1]),
-                    ],
-                  )
-                else
-                  ...sections.expand((section) => [
-                        section,
-                        const SizedBox(height: 14),
-                      ]),
+                _buildResponsiveCardGrid(sections),
               ],
             );
           },
+        );
+      },
+    );
+  }
+
+  Widget _buildResponsiveCardGrid(List<Widget> children) {
+    if (children.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 14.0;
+        const minCardWidth = 320.0;
+        var columns =
+            ((constraints.maxWidth + spacing) / (minCardWidth + spacing))
+                .floor();
+        if (columns < 1) {
+          columns = 1;
+        }
+        if (columns > children.length) {
+          columns = children.length;
+        }
+        final cardWidth =
+            (constraints.maxWidth - spacing * (columns - 1)) / columns;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final child in children)
+              SizedBox(
+                width: cardWidth,
+                child: child,
+              ),
+          ],
         );
       },
     );
@@ -314,9 +326,18 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                   label: const Text('刷新发现'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: _showDiagnosticsDialog,
-                  icon: const Icon(Icons.medical_information_outlined),
-                  label: const Text('查看诊断'),
+                  onPressed: chatManager.isBuildingDiagnostics
+                      ? null
+                      : _showDiagnosticsDialog,
+                  icon: chatManager.isBuildingDiagnostics
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.medical_information_outlined),
+                  label:
+                      Text(chatManager.isBuildingDiagnostics ? '加载中' : '查看诊断'),
                 ),
                 FilledButton.tonalIcon(
                   onPressed: _confirmClearChatData,
@@ -397,7 +418,12 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-            child,
+            SizedBox(
+              height: 300,
+              child: SingleChildScrollView(
+                child: child,
+              ),
+            ),
           ],
         ),
       ),
@@ -453,6 +479,10 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
             : roomTypeLabel;
         return _buildSelectableTile(
           selected: selected,
+          accentColor: channel.isPrivate
+              ? Theme.of(context).colorScheme.tertiary
+              : Theme.of(context).colorScheme.secondary,
+          tags: [_buildRoomTypeTag(channel.isPrivate)],
           onTap: () => widget.onOpenChannelConversation(conversationId),
           title: channel.name,
           subtitle: subtitle,
@@ -504,7 +534,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
               if (isOwner)
                 const PopupMenuItem(
                   value: 'archive',
-                  child: Text('归档房间'),
+                  child: Text('隐藏房间'),
                 ),
             ],
           ),
@@ -610,19 +640,24 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     required String title,
     required String subtitle,
     Widget? trailing,
+    Color? accentColor,
+    List<Widget> tags = const [],
     void Function(TapDownDetails details)? onSecondaryTapDown,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: selected
-            ? Theme.of(context).colorScheme.primary.withOpacity(0.08)
-            : Theme.of(context).colorScheme.surface.withOpacity(0.45),
+            ? colorScheme.primary.withOpacity(0.08)
+            : (accentColor?.withOpacity(0.08) ??
+                colorScheme.surface.withOpacity(0.45)),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: selected
-              ? Theme.of(context).colorScheme.primary.withOpacity(0.20)
-              : Theme.of(context).dividerColor.withOpacity(0.35),
+              ? colorScheme.primary.withOpacity(0.20)
+              : (accentColor?.withOpacity(0.20) ??
+                  Theme.of(context).dividerColor.withOpacity(0.35)),
         ),
       ),
       child: GestureDetector(
@@ -632,10 +667,20 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           onTap: onTap,
-          title: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          title: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              for (final tag in tags) ...[
+                const SizedBox(width: 8),
+                tag,
+              ],
+            ],
           ),
           subtitle: Text(
             subtitle,
@@ -644,6 +689,26 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
           ),
           trailing: trailing,
         ),
+      ),
+    );
+  }
+
+  Widget _buildRoomTypeTag(bool isPrivate) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final color = isPrivate ? colorScheme.tertiary : colorScheme.secondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.28)),
+      ),
+      child: Text(
+        isPrivate ? '私密' : '公开',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
       ),
     );
   }
@@ -970,24 +1035,26 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                 height: 300,
                 child: ListView(
                   children: allCandidates.map((peer) {
-                    return CheckboxListTile(
-                      value: selectedIds.contains(peer.peerId),
-                      title: Text(chatPeerPrimaryName(peer)),
-                      subtitle: Text(
-                        buildMemberPeerSubtitle(
-                          peer,
-                          hasMultipleNetworks: _hasMultipleNetworks,
+                    return _buildDialogListItem(
+                      child: CheckboxListTile(
+                        value: selectedIds.contains(peer.peerId),
+                        title: Text(chatPeerPrimaryName(peer)),
+                        subtitle: Text(
+                          buildMemberPeerSubtitle(
+                            peer,
+                            hasMultipleNetworks: _hasMultipleNetworks,
+                          ),
                         ),
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == true) {
+                              selectedIds.add(peer.peerId);
+                            } else {
+                              selectedIds.remove(peer.peerId);
+                            }
+                          });
+                        },
                       ),
-                      onChanged: (value) {
-                        setState(() {
-                          if (value == true) {
-                            selectedIds.add(peer.peerId);
-                          } else {
-                            selectedIds.remove(peer.peerId);
-                          }
-                        });
-                      },
                     );
                   }).toList(),
                 ),
@@ -1034,27 +1101,29 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                 : ListView(
                     children: peers.map((peer) {
                       final isOwner = peer.peerId == channel.ownerPeerId;
-                      return ListTile(
-                        title: Text(chatPeerPrimaryName(peer)),
-                        subtitle: Text(
-                          buildMemberPeerSubtitle(
-                            peer,
-                            hasMultipleNetworks: _hasMultipleNetworks,
-                            suffix: isOwner ? '房主' : null,
+                      return _buildDialogListItem(
+                        child: ListTile(
+                          title: Text(chatPeerPrimaryName(peer)),
+                          subtitle: Text(
+                            buildMemberPeerSubtitle(
+                              peer,
+                              hasMultipleNetworks: _hasMultipleNetworks,
+                              suffix: isOwner ? '房主' : null,
+                            ),
                           ),
+                          trailing: isOwner
+                              ? const Text('房主')
+                              : TextButton(
+                                  onPressed: () async {
+                                    Navigator.of(context).pop();
+                                    await chatManager.removeMemberFromChannel(
+                                      channel,
+                                      peer,
+                                    );
+                                  },
+                                  child: const Text('移除'),
+                                ),
                         ),
-                        trailing: isOwner
-                            ? const Text('房主')
-                            : TextButton(
-                                onPressed: () async {
-                                  Navigator.of(context).pop();
-                                  await chatManager.removeMemberFromChannel(
-                                    channel,
-                                    peer,
-                                  );
-                                },
-                                child: const Text('移除'),
-                              ),
                       );
                     }).toList(),
                   ),
@@ -1067,6 +1136,19 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildDialogListItem({required Widget child}) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withOpacity(0.34),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.32)),
+      ),
+      child: child,
     );
   }
 
@@ -1104,7 +1186,10 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
   }
 
   Future<void> _showDiagnosticsDialog() async {
-    final report = await chatManager.buildDiagnosticsReport();
+    if (chatManager.isBuildingDiagnostics) {
+      return;
+    }
+    final reportFuture = chatManager.buildDiagnosticsReport();
     if (!mounted) {
       return;
     }
@@ -1115,16 +1200,32 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
           title: const Text('聊天室联调诊断'),
           content: SizedBox(
             width: 640,
-            child: SingleChildScrollView(
-              child: SelectableText(
-                report,
-                style: const TextStyle(fontFamily: 'monospace'),
-              ),
+            child: FutureBuilder<String>(
+              future: reportFuture,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const SizedBox(
+                    height: 180,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                return SingleChildScrollView(
+                  child: SelectableText(
+                    snapshot.data!,
+                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                );
+              },
             ),
           ),
           actions: [
             TextButton(
+              onPressed: _showChatDebugLogDialog,
+              child: const Text('查看日志'),
+            ),
+            TextButton(
               onPressed: () async {
+                final report = await reportFuture;
                 final navigator = Navigator.of(context);
                 final messenger = ScaffoldMessenger.of(this.context);
                 await Clipboard.setData(ClipboardData(text: report));
@@ -1134,6 +1235,48 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                 navigator.pop();
                 messenger.showSnackBar(
                   const SnackBar(content: Text('诊断信息已复制')),
+                );
+              },
+              child: const Text('复制'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showChatDebugLogDialog() async {
+    final log = await chatManager.readChatDebugLog();
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('chat-debug.log'),
+          content: SizedBox(
+            width: 720,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                log,
+                style: const TextStyle(fontFamily: 'monospace'),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: log));
+                if (!mounted) {
+                  return;
+                }
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(content: Text('日志已复制')),
                 );
               },
               child: const Text('复制'),

@@ -100,6 +100,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   String? _lastPushedStatusMessage;
   DateTime? _lastPushedStatusAt;
   int _pendingOutgoingAttachmentCount = 0;
+  Future<String>? _diagnosticsReportFuture;
   final Set<String> _processingRemoteAssistAcceptSessionIds = <String>{};
 
   ChatAudioService get _audio => ChatAudioService.instance;
@@ -109,6 +110,8 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   bool get isChatAudioSupported => _audio.isAudioFeatureSupported;
 
   bool get isSendingAttachment => _pendingOutgoingAttachmentCount > 0;
+
+  bool get isBuildingDiagnostics => _diagnosticsReportFuture != null;
 
   String get chatAudioUnsupportedReason => _audio.unsupportedReason;
 
@@ -675,6 +678,30 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     return peerIndex[peerId];
   }
 
+  String peerDeviceInfo(String peerId, String networkKey) {
+    final peer = findPeer(peerId);
+    final parsedIp = peerId.startsWith('$networkKey:')
+        ? peerId.substring(networkKey.length + 1)
+        : peerId;
+    final localPeerId = _localPeerIdForNetwork(networkKey);
+    final localBox = vntManager.map[networkKey];
+    final localDeviceName = localPeerId == peerId && localBox != null
+        ? localBox.getNetConfig()?.deviceName.trim()
+        : null;
+    final deviceName = [
+      localDeviceName,
+      peer?.deviceName.trim(),
+      peer?.displayName.trim(),
+    ].whereType<String>().firstWhere(
+          (value) => value.isNotEmpty && value != parsedIp,
+          orElse: () => '',
+        );
+    final ip = peer?.virtualIp.trim().isNotEmpty == true
+        ? peer!.virtualIp.trim()
+        : parsedIp;
+    return deviceName.isEmpty ? ip : '$deviceName  $ip';
+  }
+
   bool isPeerOnline(ChatPeer peer, {DateTime? now}) {
     return chatPeerIsEffectivelyOnline(peer, now: now);
   }
@@ -1026,7 +1053,21 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     }
   }
 
-  Future<String> buildDiagnosticsReport() async {
+  Future<String> buildDiagnosticsReport() {
+    final running = _diagnosticsReportFuture;
+    if (running != null) {
+      return running;
+    }
+    final future = _buildDiagnosticsReportInternal();
+    _diagnosticsReportFuture = future;
+    notifyListeners();
+    return future.whenComplete(() {
+      _diagnosticsReportFuture = null;
+      notifyListeners();
+    });
+  }
+
+  Future<String> _buildDiagnosticsReportInternal() async {
     final dbPath = await _repository.databasePath;
     final baseDir = await _repository.baseDirectoryPath;
     final attachmentsDir = (await _repository.attachmentsDirectory).path;
@@ -1038,13 +1079,33 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     final managedRuntimeHome = await _remoteAssist.managedRuntimeHomePath();
     final managedConfigDir = await _remoteAssist.managedConfigDirectoryPath();
     final managedLogsDir = await _remoteAssist.managedLogsDirectoryPath();
-    await _remoteAssist.syncManagedLogsToMirror();
+    try {
+      await _remoteAssist
+          .syncManagedLogsToMirror()
+          .timeout(const Duration(seconds: 3));
+    } catch (error) {
+      await _logger.warn(
+        'diagnostics',
+        '同步远程协助日志超时或失败',
+        extra: {'error': error.toString()},
+      );
+    }
     final managedRustDeskLogsDir =
         await _remoteAssist.managedRustDeskInternalLogsDirectoryPath();
     final mirroredCompanionLogsDir =
         await _remoteAssist.mirroredCompanionLogsDirectoryPath();
-    final firewallStatus =
-        await _firewall.checkRuleStatus(includeRemoteAssist: true);
+    WindowsFirewallEnsureResult? firewallStatus;
+    try {
+      firewallStatus = await _firewall
+          .checkRuleStatus(includeRemoteAssist: true)
+          .timeout(const Duration(seconds: 3));
+    } catch (error) {
+      await _logger.warn(
+        'diagnostics',
+        '读取 Windows 防火墙状态超时或失败',
+        extra: {'error': error.toString()},
+      );
+    }
     final buffer = StringBuffer()
       ..writeln('聊天室联调诊断')
       ..writeln('时间: ${DateTime.now().toIso8601String()}')
@@ -1072,14 +1133,14 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
       ..writeln(
           '当前通话: ${callSession?.type.name ?? 'none'} / ${callSession?.state.name ?? 'idle'}');
     buffer
-      ..writeln('Windows 防火墙已启用: ${firewallStatus.firewallEnabled}')
-      ..writeln('Windows 防火墙规则已就绪: ${firewallStatus.success}')
-      ..writeln('Windows 防火墙跳过规则检查: ${firewallStatus.skippedRuleCheck}')
-      ..writeln('Windows 防火墙结果分类: ${firewallStatus.failureKind.name}')
+      ..writeln('Windows 防火墙已启用: ${firewallStatus?.firewallEnabled ?? 'unknown'}')
+      ..writeln('Windows 防火墙规则已就绪: ${firewallStatus?.success ?? 'unknown'}')
+      ..writeln('Windows 防火墙跳过规则检查: ${firewallStatus?.skippedRuleCheck ?? 'unknown'}')
+      ..writeln('Windows 防火墙结果分类: ${firewallStatus?.failureKind.name ?? 'unknown'}')
       ..writeln(
-          'Windows 防火墙已放行: ${_formatFirewallRules(firewallStatus.allowedRules)}')
+          'Windows 防火墙已放行: ${_formatFirewallRules(firewallStatus?.allowedRules ?? const [])}')
       ..writeln(
-          'Windows 防火墙缺失: ${_formatFirewallRules(firewallStatus.missingRules)}')
+          'Windows 防火墙缺失: ${_formatFirewallRules(firewallStatus?.missingRules ?? const [])}')
       ..writeln(
           '最近聊天室防火墙授权: ${_lastChatFirewallResult?.promptedForElevation ?? false}')
       ..writeln(
@@ -1156,6 +1217,51 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     }
     buffer.writeln('本地播放已收包: $_mediaPlaybackPackets');
     return buffer.toString();
+  }
+
+  Future<String> readChatDebugLog({int maxBytes = 200 * 1024}) async {
+    await _logger.init();
+    final logPath = _logger.logFilePath;
+    if (logPath.isEmpty) {
+      return '聊天室日志尚未初始化';
+    }
+    final file = File(logPath);
+    if (!await file.exists()) {
+      return '聊天室日志文件不存在: $logPath';
+    }
+    final length = await file.length();
+    if (length == 0) {
+      return '聊天室日志文件为空: $logPath';
+    }
+    final start = max(0, length - maxBytes);
+    final reader = await file.open();
+    try {
+      await reader.setPosition(start);
+      final bytes = await reader.read(length - start);
+      final prefix = start > 0 ? '仅显示最近 ${bytes.length} 字节日志\n\n' : '';
+      return '$prefix${_formatJsonLinesForDisplay(
+        utf8.decode(bytes, allowMalformed: true),
+      )}';
+    } finally {
+      await reader.close();
+    }
+  }
+
+  String _formatJsonLinesForDisplay(String content) {
+    const encoder = JsonEncoder.withIndent('  ');
+    final formatted = <String>[];
+    for (final rawLine in const LineSplitter().convert(content)) {
+      final line = rawLine.trim();
+      if (line.isEmpty) {
+        continue;
+      }
+      try {
+        formatted.add(encoder.convert(jsonDecode(line)));
+      } catch (_) {
+        formatted.add(rawLine);
+      }
+    }
+    return formatted.join('\n\n');
   }
 
   Future<void> _refreshRemoteAssistRuntimeDetails({
@@ -2224,6 +2330,97 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     return members.map((member) => member.peerId).toList();
   }
 
+  Future<void> retryMessage(String messageId) async {
+    final message = await _repository.getMessage(messageId);
+    if (message == null ||
+        message.direction != ChatMessageDirection.outgoing ||
+        message.status != ChatMessageStatus.failed) {
+      return;
+    }
+    if (message.kind != ChatMessageKind.text) {
+      _pushStatus('附件消息请重新选择文件发送');
+      return;
+    }
+    final conversation = await _repository.getConversation(
+      message.conversationId,
+    );
+    if (conversation == null) {
+      _pushStatus('原会话不存在，无法重试发送');
+      return;
+    }
+    final retrying = message.copyWith(status: ChatMessageStatus.pending);
+    await _repository.replaceMessage(retrying);
+    await selectConversation(message.conversationId);
+    try {
+      if (conversation.type == ChatConversationType.direct &&
+          conversation.peerId != null) {
+        await _sendEnvelopeToPeer(
+          networkKey: conversation.networkKey,
+          peerId: conversation.peerId!,
+          type: ChatEnvelopeType.dmMessage,
+          conversationId: conversation.conversationId,
+          payload: {
+            'messageId': message.messageId,
+            'kind': ChatMessageKind.text.name,
+            'text': message.text,
+          },
+        );
+      } else if (conversation.channelId != null) {
+        final result = await _broadcastToPeers(
+          networkKey: conversation.networkKey,
+          peers: await _channelBroadcastPeerIds(conversation),
+          type: ChatEnvelopeType.dmMessage,
+          conversationId: conversation.conversationId,
+          channelId: conversation.channelId,
+          payload: {
+            'messageId': message.messageId,
+            'kind': ChatMessageKind.text.name,
+            'text': message.text,
+          },
+        );
+        if (result.allFailed) {
+          throw StateError('频道文字消息广播失败，全部目标节点均未送达');
+        }
+      }
+      await _repository.replaceMessage(
+        retrying.copyWith(status: ChatMessageStatus.sent),
+      );
+      _pushStatus('消息已重新发送');
+    } catch (error, stackTrace) {
+      await _repository.replaceMessage(
+        retrying.copyWith(status: ChatMessageStatus.failed),
+      );
+      await _logger.error(
+        'message.text.retry',
+        '文字消息重试发送失败',
+        networkKey: message.networkKey,
+        extra: {
+          'conversationId': message.conversationId,
+          'messageId': message.messageId,
+          'error': error.toString(),
+          'stackTrace': stackTrace.toString(),
+        },
+      );
+      _pushStatus('消息重试发送失败，请查看联调诊断和 chat-debug.log');
+    } finally {
+      await selectConversation(message.conversationId);
+    }
+  }
+
+  Future<void> deleteMessage(String messageId) async {
+    final message = await _repository.getMessage(messageId);
+    if (message == null) {
+      return;
+    }
+    await _repository.deleteMessage(messageId);
+    if (selectedConversationId == message.conversationId) {
+      await selectConversation(message.conversationId);
+    } else {
+      await _reloadSidebar();
+      notifyListeners();
+    }
+  }
+
   Future<void> sendPickedImage() async {
     try {
       final picked = await FilePicker.platform.pickFiles(
@@ -2608,49 +2805,70 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   }
 
   Future<void> finishVoiceNoteRecording() async {
-    final conversation = selectedConversation;
-    if (conversation == null || !_audio.isVoiceRecording) {
-      return;
-    }
-    final filePath = await _audio.stopVoiceNoteRecording();
-    if (filePath == null || filePath.isEmpty) {
-      return;
-    }
-    final startedAt = _voiceRecordingStartedAt ?? DateTime.now();
-    _voiceRecordingStartedAt = null;
-    final duration = DateTime.now().difference(startedAt);
-    if (duration.inMilliseconds < 500) {
+    String? filePath;
+    try {
+      final conversation = selectedConversation;
+      if (conversation == null || !_audio.isVoiceRecording) {
+        return;
+      }
+      filePath = await _audio.stopVoiceNoteRecording();
+      if (filePath == null || filePath.isEmpty) {
+        return;
+      }
+      final startedAt = _voiceRecordingStartedAt ?? DateTime.now();
+      _voiceRecordingStartedAt = null;
+      final duration = DateTime.now().difference(startedAt);
+      if (duration.inMilliseconds < 500) {
+        await _repository.deleteFileIfExists(filePath);
+        notifyListeners();
+        return;
+      }
+      final imported = await _repository.importOutgoingFile(filePath);
       await _repository.deleteFileIfExists(filePath);
+      await _sendOutgoingAttachment(
+        conversation: conversation,
+        localPath: imported.path,
+        fileName: path.basename(imported.path),
+        kind: ChatMessageKind.voiceNote,
+      );
       notifyListeners();
-      return;
+      await _logger.info(
+        'voice.note',
+        '完成语音消息录制并发送 offer',
+        networkKey: conversation.networkKey,
+        extra: {
+          'conversationId': conversation.conversationId,
+          'durationMs': duration.inMilliseconds,
+        },
+      );
+    } catch (error) {
+      _voiceRecordingStartedAt = null;
+      if (filePath != null && filePath.isNotEmpty) {
+        await _repository.deleteFileIfExists(filePath);
+      }
+      _pushStatus(_audio.userMessageForError(error, action: '结束录音'));
+      await _logger.error('voice.note', '结束录音失败', extra: {
+        'error': error.toString(),
+      });
+      notifyListeners();
     }
-    final imported = await _repository.importOutgoingFile(filePath);
-    await _repository.deleteFileIfExists(filePath);
-    await _sendOutgoingAttachment(
-      conversation: conversation,
-      localPath: imported.path,
-      fileName: path.basename(imported.path),
-      kind: ChatMessageKind.voiceNote,
-    );
-    notifyListeners();
-    await _logger.info(
-      'voice.note',
-      '完成语音消息录制并发送 offer',
-      networkKey: conversation.networkKey,
-      extra: {
-        'conversationId': conversation.conversationId,
-        'durationMs': duration.inMilliseconds,
-      },
-    );
   }
 
   Future<void> cancelVoiceNoteRecording() async {
     if (!_audio.isVoiceRecording) {
       return;
     }
-    _voiceRecordingStartedAt = null;
-    await _audio.cancelVoiceNoteRecording();
-    notifyListeners();
+    try {
+      _voiceRecordingStartedAt = null;
+      await _audio.cancelVoiceNoteRecording();
+      notifyListeners();
+    } catch (error) {
+      _pushStatus(_audio.userMessageForError(error, action: '取消录音'));
+      await _logger.error('voice.note', '取消录音失败', extra: {
+        'error': error.toString(),
+      });
+      notifyListeners();
+    }
   }
 
   Future<void> playVoiceMessage(ChatMessage message) async {
