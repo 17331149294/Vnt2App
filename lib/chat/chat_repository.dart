@@ -4,7 +4,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite/sqflite.dart' as mobile_sqflite;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi_sqflite;
 import 'package:uuid/uuid.dart';
 
 import 'chat_models.dart';
@@ -18,7 +19,7 @@ class ChatRepository {
   static const Uuid _uuid = Uuid();
   static bool _ffiInitialized = false;
 
-  Database? _database;
+  ffi_sqflite.Database? _database;
   Directory? _baseDir;
   String? _dbPath;
 
@@ -26,11 +27,10 @@ class ChatRepository {
     if (_database != null) {
       return;
     }
-    _ensureDatabaseFactoryInitialized();
     _baseDir = await _resolveBaseDirectory();
     final dbPath = path.join(_baseDir!.path, 'chat.db');
     _dbPath = dbPath;
-    _database = await openDatabase(
+    _database = await _openChatDatabase(
       dbPath,
       version: 1,
       onCreate: (db, version) async {
@@ -39,25 +39,52 @@ class ChatRepository {
     );
   }
 
-  void _ensureDatabaseFactoryInitialized() {
+  Future<ffi_sqflite.Database> _openChatDatabase(
+    String dbPath, {
+    required int version,
+    required Future<void> Function(ffi_sqflite.Database db, int version)
+        onCreate,
+  }) {
+    if (Platform.isAndroid || Platform.isIOS) {
+      return mobile_sqflite.openDatabase(
+        dbPath,
+        version: version,
+        onCreate: onCreate,
+      );
+    }
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      _ensureDesktopDatabaseFactoryInitialized();
+      return ffi_sqflite.openDatabase(
+        dbPath,
+        version: version,
+        onCreate: onCreate,
+      );
+    }
+    return Future.error(
+      UnsupportedError('当前平台暂不支持聊天室本地数据库'),
+    );
+  }
+
+  void _ensureDesktopDatabaseFactoryInitialized() {
     if (_ffiInitialized) {
       return;
     }
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    }
+    ffi_sqflite.sqfliteFfiInit();
+    ffi_sqflite.databaseFactory = ffi_sqflite.databaseFactoryFfi;
     _ffiInitialized = true;
   }
 
-  Future<Database> get _db async {
+  Future<ffi_sqflite.Database> get _db async {
     await init();
     return _database!;
   }
 
   Future<Directory> _resolveBaseDirectory() async {
-    final root = await getApplicationSupportDirectory();
-    final dir = Directory(path.join(root.path, 'chat'));
+    final dir = Platform.isWindows
+        ? await _resolveWindowsPortableChatDirectory()
+        : Directory(
+            path.join((await getApplicationSupportDirectory()).path, 'chat'),
+          );
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -80,7 +107,44 @@ class ChatRepository {
     return dir;
   }
 
-  Future<void> _createSchema(Database db) async {
+  Future<Directory> _resolveWindowsPortableChatDirectory() async {
+    final exeDir = path.dirname(Platform.resolvedExecutable);
+    final portableDir = Directory(path.join(exeDir, 'chat'));
+    final supportRoot = await getApplicationSupportDirectory();
+    final legacyDir = Directory(path.join(supportRoot.path, 'chat'));
+    final portableDb = File(path.join(portableDir.path, 'chat.db'));
+    final legacyDb = File(path.join(legacyDir.path, 'chat.db'));
+
+    if (!await portableDir.exists()) {
+      await portableDir.create(recursive: true);
+    }
+    if (!await portableDb.exists() && await legacyDb.exists()) {
+      await _copyDirectoryContents(legacyDir, portableDir);
+    }
+    return portableDir;
+  }
+
+  Future<void> _copyDirectoryContents(Directory source, Directory target) async {
+    if (!await source.exists()) {
+      return;
+    }
+    if (!await target.exists()) {
+      await target.create(recursive: true);
+    }
+    await for (final entity in source.list(recursive: false)) {
+      final targetPath = path.join(target.path, path.basename(entity.path));
+      if (entity is Directory) {
+        await _copyDirectoryContents(entity, Directory(targetPath));
+      } else if (entity is File) {
+        final targetFile = File(targetPath);
+        if (!await targetFile.exists()) {
+          await entity.copy(targetFile.path);
+        }
+      }
+    }
+  }
+
+  Future<void> _createSchema(ffi_sqflite.Database db) async {
     await db.execute('''
       CREATE TABLE peers (
         peer_id TEXT PRIMARY KEY,
@@ -302,7 +366,7 @@ class ChatRepository {
     await db.insert(
       'peers',
       peer.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.replace,
     );
   }
 
@@ -367,7 +431,7 @@ class ChatRepository {
     await db.insert(
       'friends',
       friend.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.replace,
     );
   }
 
@@ -399,7 +463,7 @@ class ChatRepository {
     await db.insert(
       'channels',
       channel.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.replace,
     );
   }
 
@@ -433,7 +497,7 @@ class ChatRepository {
     await db.insert(
       'channel_members',
       member.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.replace,
     );
   }
 
@@ -462,7 +526,7 @@ class ChatRepository {
     await db.insert(
       'conversations',
       conversation.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.replace,
     );
   }
 
@@ -509,7 +573,7 @@ class ChatRepository {
     await db.insert(
       'messages',
       message.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.ignore,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.ignore,
     );
   }
 
@@ -518,7 +582,7 @@ class ChatRepository {
     await db.insert(
       'messages',
       message.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.replace,
     );
   }
 
@@ -552,7 +616,7 @@ class ChatRepository {
     await db.insert(
       'attachments',
       attachment.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.replace,
     );
   }
 
@@ -575,7 +639,7 @@ class ChatRepository {
     await db.insert(
       'call_logs',
       log.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ffi_sqflite.ConflictAlgorithm.replace,
     );
   }
 

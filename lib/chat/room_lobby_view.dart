@@ -910,7 +910,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('创建房间失败: $error')),
+        SnackBar(content: Text(ChatManager.roomCreateFailureMessage(error))),
       );
       return;
     }

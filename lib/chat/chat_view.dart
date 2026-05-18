@@ -127,12 +127,21 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                   : null,
             );
             if (isWide) {
-              return Row(
-                children: [
-                  SizedBox(width: 320, child: leftPane),
-                  const VerticalDivider(width: 1),
-                  Expanded(child: rightPane),
-                ],
+              return Container(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerLowest
+                    .withOpacity(0.55),
+                child: Row(
+                  children: [
+                    SizedBox(width: 360, child: leftPane),
+                    VerticalDivider(
+                      width: 1,
+                      color: Theme.of(context).dividerColor.withOpacity(0.16),
+                    ),
+                    Expanded(child: rightPane),
+                  ],
+                ),
               );
             }
             if (showConversationOnlyOnNarrow) {
@@ -190,13 +199,14 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     ChatRoomSection section, {
     VoidCallback? onEntryActivated,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      color: Theme.of(context).colorScheme.surface,
+      color: colorScheme.surface,
       child: ListView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
         children: [
           _buildDebugToolsCard(context),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           if (section == ChatRoomSection.channels) ...[
             _buildSectionCard(
               context: context,
@@ -206,7 +216,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                 onEntryActivated: onEntryActivated,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             _buildSectionCard(
               context: context,
               title: '房间',
@@ -227,7 +237,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                 onEntryActivated: onEntryActivated,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             _buildSectionCard(
               context: context,
               title: '在线成员',
@@ -243,26 +253,49 @@ class _ChatRoomViewState extends State<ChatRoomView> {
   }
 
   Widget _buildDebugToolsCard(BuildContext context) {
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withOpacity(0.38),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colorScheme.primary.withOpacity(0.12)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '联调工具',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(10),
                   ),
+                  child: Icon(
+                    Icons.hub_outlined,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    widget.section == ChatRoomSection.channels ? '聊天室' : '私信',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Text(
               '网络 ${_connectedNetworkKeys.length} 个 · 在线设备 ${_onlinePeers.length} 个',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -297,9 +330,13 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     required Widget child,
     Widget? trailing,
   }) {
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withOpacity(0.34),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.45)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -318,16 +355,13 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withOpacity(0.1),
+                    color: colorScheme.primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
                     '$count',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
+                      color: colorScheme.primary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -676,25 +710,38 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     Widget? trailing,
     void Function(TapDownDetails details)? onSecondaryTapDown,
   }) {
-    return Container(
+    final colorScheme = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: selected
-            ? Theme.of(context).colorScheme.primary.withOpacity(0.08)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+            ? colorScheme.primary.withOpacity(0.10)
+            : colorScheme.surface.withOpacity(0.42),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(
+          color: selected
+              ? colorScheme.primary.withOpacity(0.24)
+              : colorScheme.outlineVariant.withOpacity(0.20),
+        ),
       ),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onSecondaryTapDown: onSecondaryTapDown,
         child: ListTile(
+          dense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
           onTap: onTap,
           title: Text(
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+            ),
           ),
           subtitle: Text(
             subtitle,
@@ -797,36 +844,45 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             .where((item) => item.channelId == activeConversation.channelId)
             .cast<ChatChannel?>()
             .firstOrNull;
-    return Column(
-      children: [
-        _buildConversationHeader(
-          activeConversation,
-          peer,
-          channel,
-          onShowSidebar: onShowSidebar,
-        ),
-        if (chatManager.callSession?.isIncoming == true &&
-            chatManager.callSession?.state == ChatCallState.ringing)
-          _buildIncomingCallBanner(),
-        if (chatManager.remoteAssistSession?.peerId ==
-            activeConversation.peerId)
-          _buildRemoteAssistBanner(peer),
-        Expanded(
-          child: chatManager.activeMessages.isEmpty
-              ? Center(
-                  child: _buildEmptyHint('暂无消息', '现在可以发送文字、图片、文件和语音'),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: chatManager.activeMessages.length,
-                  itemBuilder: (context, index) {
-                    final message = chatManager.activeMessages[index];
-                    return _buildMessageBubble(message);
-                  },
-                ),
-        ),
-        _buildInputBar(activeConversation, channel),
-      ],
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      color: colorScheme.surfaceContainerLowest.withOpacity(0.35),
+      child: Column(
+        children: [
+          _buildConversationHeader(
+            activeConversation,
+            peer,
+            channel,
+            onShowSidebar: onShowSidebar,
+          ),
+          if (chatManager.callSession?.isIncoming == true &&
+              chatManager.callSession?.state == ChatCallState.ringing)
+            _buildIncomingCallBanner(),
+          if (chatManager.remoteAssistSession?.peerId ==
+              activeConversation.peerId)
+            _buildRemoteAssistBanner(peer),
+          Expanded(
+            child: chatManager.activeMessages.isEmpty
+                ? Center(
+                    child: _buildEmptyHint('暂无消息', '现在可以发送文字、图片、文件和语音'),
+                  )
+                : ListView.builder(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: MediaQuery.of(context).size.width >= 980
+                          ? 28
+                          : 14,
+                      vertical: 18,
+                    ),
+                    itemCount: chatManager.activeMessages.length,
+                    itemBuilder: (context, index) {
+                      final message = chatManager.activeMessages[index];
+                      return _buildMessageBubble(message);
+                    },
+                  ),
+          ),
+          _buildInputBar(activeConversation, channel),
+        ],
+      ),
     );
   }
 
@@ -849,107 +905,122 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         : '${conversation.networkKey} · ${channel?.isPrivate == true ? '私密房间' : '公开房间'}';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withOpacity(0.94),
         border: Border(
           bottom: BorderSide(
             color: Theme.of(context).dividerColor.withOpacity(0.2),
           ),
         ),
       ),
-      child: Row(
-        children: [
-          if (onShowSidebar != null)
-            IconButton(
-              onPressed: onShowSidebar,
-              tooltip: widget.section == ChatRoomSection.channels
-                  ? '切换大厅和房间'
-                  : '切换私信会话',
-              icon: const Icon(Icons.view_list_rounded),
-            ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  conversation.title,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                if (audioSupported && chatManager.chatAudioHeadsetRecommended)
-                  Text(
-                    '语音建议佩戴耳机或耳麦',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                  ),
-              ],
-            ),
-          ),
-          if (conversation.type == ChatConversationType.direct && peer != null)
-            IconButton(
-              onPressed: remoteAssistReason == null
-                  ? () => chatManager.inviteRemoteControl(peer)
-                  : null,
-              tooltip: remoteAssistReason ?? '邀请对方控制当前设备',
-              icon: const Icon(Icons.screen_share_outlined),
-            ),
-          if (conversation.type == ChatConversationType.direct && peer != null)
-            IconButton(
-              onPressed: remoteAssistReason == null
-                  ? () => chatManager.requestRemoteControl(peer)
-                  : null,
-              tooltip: remoteAssistReason ?? '请求控制对方设备',
-              icon: const Icon(Icons.control_camera_outlined),
-            ),
-          if (conversation.type == ChatConversationType.direct && peer != null)
-            IconButton(
-              onPressed: audioSupported
-                  ? (isDirectCall
-                      ? chatManager.hangupCall
-                      : (peer.isOnline
-                          ? () => chatManager.startPrivateCall(peer)
-                          : null))
-                  : null,
-              tooltip: audioSupported
-                  ? (isDirectCall ? '挂断语音' : '发起语音')
-                  : chatManager.chatAudioUnsupportedReason,
-              icon: Icon(isDirectCall ? Icons.call_end : Icons.call),
-            ),
-          if (conversation.type == ChatConversationType.channel &&
-              channel != null)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  audioSupported
-                      ? (isChannelVoice
-                          ? '语音中 ${session?.participants.length ?? 1} 人'
-                          : '未加入语音')
-                      : '当前平台不支持语音',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 620;
+          final actions = <Widget>[
+            if (conversation.type == ChatConversationType.direct && peer != null)
+              IconButton(
+                onPressed: remoteAssistReason == null
+                    ? () => chatManager.inviteRemoteControl(peer)
+                    : null,
+                tooltip: remoteAssistReason ?? '邀请对方控制当前设备',
+                icon: const Icon(Icons.screen_share_outlined),
+              ),
+            if (conversation.type == ChatConversationType.direct && peer != null)
+              IconButton(
+                onPressed: remoteAssistReason == null
+                    ? () => chatManager.requestRemoteControl(peer)
+                    : null,
+                tooltip: remoteAssistReason ?? '请求控制对方设备',
+                icon: const Icon(Icons.control_camera_outlined),
+              ),
+            if (conversation.type == ChatConversationType.direct && peer != null)
+              IconButton(
+                onPressed: audioSupported
+                    ? (isDirectCall
+                        ? chatManager.hangupCall
+                        : (peer.isOnline
+                            ? () => chatManager.startPrivateCall(peer)
+                            : null))
+                    : null,
+                tooltip: audioSupported
+                    ? (isDirectCall ? '挂断语音' : '发起语音')
+                    : chatManager.chatAudioUnsupportedReason,
+                icon: Icon(isDirectCall ? Icons.call_end : Icons.call),
+              ),
+            if (conversation.type == ChatConversationType.channel &&
+                channel != null)
+              FilledButton.tonalIcon(
+                onPressed: audioSupported
+                    ? (isChannelVoice
+                        ? chatManager.leaveChannelVoice
+                        : () => chatManager.joinChannelVoice(channel))
+                    : null,
+                icon:
+                    Icon(isChannelVoice ? Icons.headset_off : Icons.headset_mic),
+                label: Text(isChannelVoice ? '离开语音' : '加入语音'),
+              ),
+          ];
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (onShowSidebar != null)
                 IconButton(
-                  onPressed: audioSupported
-                      ? (isChannelVoice
-                          ? chatManager.leaveChannelVoice
-                          : () => chatManager.joinChannelVoice(channel))
-                      : null,
-                  tooltip: audioSupported
-                      ? (isChannelVoice ? '离开语音' : '加入语音')
-                      : chatManager.chatAudioUnsupportedReason,
-                  icon: Icon(
-                      isChannelVoice ? Icons.headset_off : Icons.headset_mic),
+                  onPressed: onShowSidebar,
+                  tooltip: widget.section == ChatRoomSection.channels
+                      ? '切换大厅和房间'
+                      : '切换私信会话',
+                  icon: const Icon(Icons.view_list_rounded),
                 ),
-              ],
-            ),
-        ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      conversation.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (audioSupported &&
+                        chatManager.chatAudioHeadsetRecommended)
+                      Text(
+                        '语音建议佩戴耳机或耳麦',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (compact)
+                Flexible(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    reverse: true,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: actions,
+                    ),
+                  ),
+                )
+              else
+                Row(mainAxisSize: MainAxisSize.min, children: actions),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1062,51 +1133,68 @@ class _ChatRoomViewState extends State<ChatRoomView> {
   Widget _buildMessageBubble(ChatMessage message) {
     final isOutgoing = message.direction == ChatMessageDirection.outgoing;
     final peer = chatManager.findPeer(message.senderPeerId);
-    return Align(
-      alignment: isOutgoing ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 560),
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isOutgoing
-              ? Theme.of(context).colorScheme.primary.withOpacity(0.12)
-              : Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHighest
-                  .withOpacity(0.4),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment:
-              isOutgoing ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            Text(
-              isOutgoing ? '我' : (peer?.displayName ?? message.senderPeerId),
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+    final colorScheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxBubbleWidth =
+            constraints.maxWidth < 720 ? constraints.maxWidth * 0.84 : 560.0;
+        return Align(
+          alignment: isOutgoing ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isOutgoing
+                  ? colorScheme.primary.withOpacity(0.13)
+                  : colorScheme.surface.withOpacity(0.86),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(16),
+                topRight: const Radius.circular(16),
+                bottomLeft: Radius.circular(isOutgoing ? 16 : 4),
+                bottomRight: Radius.circular(isOutgoing ? 4 : 16),
+              ),
+              border: Border.all(
+                color: isOutgoing
+                    ? colorScheme.primary.withOpacity(0.18)
+                    : colorScheme.outlineVariant.withOpacity(0.28),
+              ),
             ),
-            const SizedBox(height: 8),
-            _buildMessageContent(message),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Column(
+              crossAxisAlignment:
+                  isOutgoing ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
                 Text(
-                  _statusText(message.status, message.attachmentId != null),
-                  style: Theme.of(context).textTheme.bodySmall,
+                  isOutgoing ? '我' : (peer?.displayName ?? message.senderPeerId),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  TimeOfDay.fromDateTime(message.receivedAt).format(context),
-                  style: Theme.of(context).textTheme.bodySmall,
+                const SizedBox(height: 8),
+                _buildMessageContent(message),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 2,
+                  children: [
+                    Text(
+                      _statusText(message.status, message.attachmentId != null),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      TimeOfDay.fromDateTime(message.receivedAt)
+                          .format(context),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -1247,8 +1335,14 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             session.speakerPeerId
         : '暂无';
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.fromLTRB(
+        12,
+        10,
+        12,
+        10 + MediaQuery.of(context).padding.bottom,
+      ),
       decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withOpacity(0.96),
         border: Border(
           top: BorderSide(
             color: Theme.of(context).dividerColor.withOpacity(0.2),
@@ -1380,64 +1474,111 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                 ],
               ),
             ),
-          Row(
-            children: [
-              Expanded(
-                child: Focus(
-                  onKeyEvent: _handleComposerKey,
-                  child: TextField(
-                    controller: _textController,
-                    maxLength: ChatManager.textLimit,
-                    minLines: 1,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: '输入消息...',
-                      counterText: '',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: (_) => _sendText(),
-                  ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 560;
+              final tools = <Widget>[
+                IconButton(
+                  onPressed: chatManager.isSendingAttachment
+                      ? null
+                      : chatManager.sendPickedImage,
+                  tooltip: chatManager.isSendingAttachment ? '附件发送中' : '发送图片',
+                  icon: const Icon(Icons.image_outlined),
                 ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                onPressed: chatManager.isSendingAttachment
-                    ? null
-                    : chatManager.sendPickedImage,
-                tooltip: chatManager.isSendingAttachment ? '附件发送中' : '发送图片',
-                icon: const Icon(Icons.image_outlined),
-              ),
-              IconButton(
-                onPressed: chatManager.isSendingAttachment
-                    ? null
-                    : chatManager.sendPickedFile,
-                tooltip: chatManager.isSendingAttachment ? '附件发送中' : '发送文件',
-                icon: const Icon(Icons.attach_file),
-              ),
-              if (audioSupported)
-                Listener(
-                  onPointerDown: (_) => chatManager.startVoiceNoteRecording(),
-                  onPointerUp: (_) => chatManager.finishVoiceNoteRecording(),
-                  onPointerCancel: (_) =>
-                      chatManager.cancelVoiceNoteRecording(),
-                  child: IconButton(
-                    onPressed: () {},
-                    tooltip: '按住录语音',
+                IconButton(
+                  onPressed: chatManager.isSendingAttachment
+                      ? null
+                      : chatManager.sendPickedFile,
+                  tooltip: chatManager.isSendingAttachment ? '附件发送中' : '发送文件',
+                  icon: const Icon(Icons.attach_file),
+                ),
+                if (audioSupported)
+                  Listener(
+                    onPointerDown: (_) => chatManager.startVoiceNoteRecording(),
+                    onPointerUp: (_) => chatManager.finishVoiceNoteRecording(),
+                    onPointerCancel: (_) =>
+                        chatManager.cancelVoiceNoteRecording(),
+                    child: IconButton(
+                      onPressed: () {},
+                      tooltip: '按住录语音',
+                      icon: const Icon(Icons.keyboard_voice_outlined),
+                    ),
+                  )
+                else
+                  IconButton(
+                    onPressed: null,
+                    tooltip: chatManager.chatAudioUnsupportedReason,
                     icon: const Icon(Icons.keyboard_voice_outlined),
                   ),
-                )
-              else
-                IconButton(
-                  onPressed: null,
-                  tooltip: chatManager.chatAudioUnsupportedReason,
-                  icon: const Icon(Icons.keyboard_voice_outlined),
+              ];
+              final composer = Focus(
+                onKeyEvent: _handleComposerKey,
+                child: TextField(
+                  controller: _textController,
+                  maxLength: ChatManager.textLimit,
+                  minLines: 1,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    hintText: '输入消息...',
+                    counterText: '',
+                    filled: true,
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withOpacity(0.34),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outlineVariant
+                            .withOpacity(0.7),
+                      ),
+                    ),
+                  ),
+                  onSubmitted: (_) => _sendText(),
                 ),
-              const SizedBox(width: 4),
-              FilledButton(
-                onPressed: _sendText,
-                child: const Text('发送'),
-              ),
-            ],
+              );
+              if (compact) {
+                return Column(
+                  children: [
+                    composer,
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(children: tools),
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: _sendText,
+                          icon: const Icon(Icons.send),
+                          label: const Text('发送'),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: composer),
+                  const SizedBox(width: 8),
+                  ...tools,
+                  const SizedBox(width: 4),
+                  FilledButton.icon(
+                    onPressed: _sendText,
+                    icon: const Icon(Icons.send),
+                    label: const Text('发送'),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1628,7 +1769,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('创建频道失败: $error')),
+        SnackBar(content: Text(ChatManager.roomCreateFailureMessage(error))),
       );
     }
   }

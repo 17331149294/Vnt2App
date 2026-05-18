@@ -260,6 +260,20 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     return channelId != null && channelId.startsWith('lobby:');
   }
 
+  static String roomCreateFailureMessage(Object error) {
+    final text = error.toString();
+    if (text.contains('sqlite3.dll') ||
+        text.contains('Failed to load dynamic library') ||
+        text.contains('databaseFactory') ||
+        text.contains('sqflite')) {
+      return '创建房间失败：本地聊天数据库不可用，请更新依赖后重新构建应用';
+    }
+    if (text.contains('暂不支持聊天室本地数据库')) {
+      return '创建房间失败：当前平台暂不支持聊天室本地数据库';
+    }
+    return '创建房间失败：$text';
+  }
+
   Future<void> init() {
     if (_initialized) {
       return Future.value();

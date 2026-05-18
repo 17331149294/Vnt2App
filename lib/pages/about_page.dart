@@ -1,6 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:vnt2_app/theme/app_theme.dart';
 import 'package:vnt2_app/utils/toast_utils.dart';
 import 'package:vnt2_app/utils/responsive_utils.dart';
@@ -9,7 +11,12 @@ import 'package:yaml/yaml.dart';
 
 /// 关于页面
 class AboutPage extends StatefulWidget {
-  const AboutPage({super.key});
+  const AboutPage({
+    super.key,
+    this.isActive = false,
+  });
+
+  final bool isActive;
 
   @override
   State<AboutPage> createState() => _AboutPageState();
@@ -18,14 +25,36 @@ class AboutPage extends StatefulWidget {
 class _AboutPageState extends State<AboutPage> {
   String _version = '2.0.0';
   String _buildNumber = '1';
-  int _latestVersionBadgeRetry = 0;
-  static const String _latestVersionBadgeUrl =
-      'https://img.shields.io/github/v/tag/lmq8267/Vnt2App?logo=github&label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&link=https%3A%2F%2Fgithub.com%2Flmq8267%2FVnt2App%2Freleases';
+  bool _latestVersionLoading = false;
+  String? _latestVersion;
+  String? _latestVersionError;
+  bool _latestVersionRequested = false;
+  static const String _latestReleaseApiUrl =
+      'https://api.github.com/repos/lmq8267/Vnt2App/releases/latest';
+  static const String _tagsApiUrl =
+      'https://api.github.com/repos/lmq8267/Vnt2App/tags?per_page=1';
+  static const String _releasesUrl =
+      'https://github.com/lmq8267/Vnt2App/releases';
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
+    _loadLatestVersionIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(covariant AboutPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _loadLatestVersionIfNeeded();
+  }
+
+  void _loadLatestVersionIfNeeded() {
+    if (!widget.isActive || _latestVersionRequested) {
+      return;
+    }
+    _latestVersionRequested = true;
+    _loadLatestVersion();
   }
 
   Future<void> _loadVersion() async {
@@ -43,6 +72,113 @@ class _AboutPageState extends State<AboutPage> {
     } catch (_) {
       // 读取失败时保持空字符串，UI 不显示版本号
     }
+  }
+
+  Future<void> _loadLatestVersion({bool force = false}) async {
+    if (_latestVersionLoading) {
+      return;
+    }
+    if (!force && _latestVersion != null) {
+      return;
+    }
+    setState(() {
+      _latestVersionLoading = true;
+      _latestVersionError = null;
+      if (force) {
+        _latestVersion = null;
+      }
+    });
+    try {
+      final latestVersion = await _fetchLatestVersion();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _latestVersion = latestVersion;
+        _latestVersionLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _latestVersionError = _latestVersionErrorMessage(error);
+        _latestVersionLoading = false;
+      });
+    }
+  }
+
+  Future<String> _fetchLatestVersion() async {
+    try {
+      final release = await _getJson(Uri.parse(_latestReleaseApiUrl));
+      if (release is Map) {
+        final tagName = release['tag_name']?.toString().trim() ?? '';
+        if (tagName.isNotEmpty) {
+          return tagName;
+        }
+        final name = release['name']?.toString().trim() ?? '';
+        if (name.isNotEmpty) {
+          return name;
+        }
+      }
+    } catch (error) {
+      final text = error.toString();
+      if (text.contains('速率限制') ||
+          text.contains('403') ||
+          text.contains('429')) {
+        rethrow;
+      }
+    }
+    final tags = await _getJson(Uri.parse(_tagsApiUrl));
+    if (tags is List && tags.isNotEmpty) {
+      final first = tags.first;
+      if (first is Map) {
+        final tagName = first['name']?.toString().trim() ?? '';
+        if (tagName.isNotEmpty) {
+          return tagName;
+        }
+      }
+    }
+    throw const FormatException('GitHub 未返回可用版本号');
+  }
+
+  Future<dynamic> _getJson(Uri uri) async {
+    final client = HttpClient();
+    try {
+      client.connectionTimeout = const Duration(seconds: 8);
+      final request = await client.getUrl(uri);
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Vnt2App');
+      final response = await request.close();
+      final body = await utf8.decodeStream(response);
+      if (response.statusCode == HttpStatus.forbidden ||
+          response.statusCode == HttpStatus.tooManyRequests) {
+        throw const HttpException('GitHub API 速率限制，请稍后重试');
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('GitHub API 返回 ${response.statusCode}');
+      }
+      return jsonDecode(body);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  String _latestVersionErrorMessage(Object error) {
+    final text = error.toString();
+    if (text.contains('速率限制') ||
+        text.contains('rate limit') ||
+        text.contains('403') ||
+        text.contains('429')) {
+      return 'GitHub 限流，稍后重试';
+    }
+    if (text.contains('SocketException') ||
+        text.contains('HandshakeException') ||
+        text.contains('Failed host lookup') ||
+        text.contains('Connection')) {
+      return '网络不可用，点击重试';
+    }
+    return '获取失败，点击重试';
   }
 
   @override
@@ -206,7 +342,7 @@ class _AboutPageState extends State<AboutPage> {
             runSpacing: context.spacingXSmall,
             children: [
               InkWell(
-                onTap: () => _launchUrl('https://github.com/lmq8267/Vnt2App'),
+                onTap: () => _launchUrl(_releasesUrl),
                 borderRadius: BorderRadius.circular(context.cardRadius),
                 child: Container(
                   padding: EdgeInsets.symmetric(
@@ -248,36 +384,43 @@ class _AboutPageState extends State<AboutPage> {
 
   Widget _buildLatestVersionBadge() {
     final primaryColor = Theme.of(context).primaryColor;
-    final badgeUrl = '$_latestVersionBadgeUrl&retry=$_latestVersionBadgeRetry';
-    return Tooltip(
-      message: '查看 GitHub 最新版本',
-      child: SizedBox(
-        height: 22,
-        child: SvgPicture.network(
-          badgeUrl,
-          key: ValueKey(badgeUrl),
-          height: 22,
-          fit: BoxFit.contain,
-          placeholderBuilder: (context) => _buildLatestVersionStatusBadge(
+    if (!widget.isActive) {
+      return _buildLatestVersionStatusBadge(
+        primaryColor,
+        label: '最新版本',
+        icon: Icons.new_releases_outlined,
+      );
+    }
+    if (_latestVersionLoading) {
+      return _buildLatestVersionStatusBadge(
+        primaryColor,
+        label: '最新版本获取中',
+        icon: Icons.sync,
+      );
+    }
+    if (_latestVersion != null && _latestVersion!.isNotEmpty) {
+      return Tooltip(
+        message: '查看 GitHub 最新版本',
+        child: InkWell(
+          onTap: () => _launchUrl(_releasesUrl),
+          borderRadius: BorderRadius.circular(4),
+          child: _buildLatestVersionStatusBadge(
             primaryColor,
-            label: '最新版本加载中',
-            icon: Icons.sync,
+            label: '最新版本 $_latestVersion',
+            icon: Icons.new_releases_outlined,
           ),
-          errorBuilder: (context, error, stackTrace) {
-            return InkWell(
-              onTap: () {
-                setState(() {
-                  _latestVersionBadgeRetry++;
-                });
-              },
-              borderRadius: BorderRadius.circular(4),
-              child: _buildLatestVersionStatusBadge(
-                primaryColor,
-                label: '加载失败，点击重试',
-                icon: Icons.refresh,
-              ),
-            );
-          },
+        ),
+      );
+    }
+    return Tooltip(
+      message: _latestVersionError ?? '点击重试获取最新版本',
+      child: InkWell(
+        onTap: () => _loadLatestVersion(force: true),
+        borderRadius: BorderRadius.circular(4),
+        child: _buildLatestVersionStatusBadge(
+          primaryColor,
+          label: _latestVersionError ?? '获取失败，点击重试',
+          icon: Icons.refresh,
         ),
       ),
     );

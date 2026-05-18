@@ -905,7 +905,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           },
         ),
         // 5: 关于
-        const AboutPage(),
+        AboutPage(isActive: _selectedIndex == 5),
       ],
     );
   }
