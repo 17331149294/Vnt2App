@@ -20,6 +20,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:vnt2_app/system_tray_manager.dart';
 import 'package:vnt2_app/ios_vpn_service.dart';
+import 'package:vnt2_app/chat/chat_manager.dart';
 
 /// 配置列表页面
 class ConfigListPage extends StatefulWidget {
@@ -806,6 +807,7 @@ class _ConfigListPageState extends State<ConfigListPage> {
             Navigator.of(context).popUntil((route) => route.isFirst);
             setState(() {});
             widget.onConfigSelected?.call(config);
+            unawaited(chatManager.syncConnections());
             // 更新 Android 磁贴和小组件
             if (Platform.isAndroid) {
               VntAppCall.updateWidgetAndTile(true);
@@ -816,6 +818,7 @@ class _ConfigListPageState extends State<ConfigListPage> {
           } else {
             // 重连成功
             showTopToast(context, '[$configName] 已重新连接到服务器', isSuccess: true);
+            unawaited(chatManager.syncConnections());
           }
         } else if (msg == 'stop') {
           vntManager.remove(itemKey);
@@ -884,8 +887,7 @@ class _ConfigListPageState extends State<ConfigListPage> {
       if (!mounted) return;
 
       Navigator.of(context).popUntil((route) => route.isFirst);
-      var msg = e.toString();
-      showTopToast(context, '连接失败 $msg', isSuccess: false);
+      showTopToast(context, '连接失败：$e', isSuccess: false);
     }
   }
 

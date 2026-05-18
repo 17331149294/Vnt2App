@@ -1806,6 +1806,8 @@ class _LinkStatusPageState extends State<LinkStatusPage>
       final vntBox = entry.value;
       final currentDevice = vntBox.currentDevice();
       deviceInfo = {
+        'config_key': entry.key,
+        'config_name': vntBox.networkConfig.configName,
         'virtual_ip': currentDevice['virtualIp'],
         'virtual_netmask': currentDevice['virtualNetmask'],
         'virtual_gateway': currentDevice['virtualGateway'],
@@ -1819,6 +1821,9 @@ class _LinkStatusPageState extends State<LinkStatusPage>
         'ipv6': currentDevice['ipv6'],
         'up_stream': vntBox.upStream(),
         'down_stream': vntBox.downStream(),
+        'peer_count': vntBox.peerDeviceList().length,
+        'route_count': vntBox.routeList().length,
+        'core_config': vntBox.coreConfig(),
       };
       break;
     }

@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
+import 'package:vnt2_app/network_config.dart';
 import 'package:vnt2_app/remote_assist/remote_assist_service.dart';
 import 'package:vnt2_app/vnt/vnt_manager.dart';
 import 'package:vnt2_app/windows/windows_firewall_service.dart';
@@ -32,6 +34,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   final ChatRepository _repository = ChatRepository.instance;
   final ChatLogger _logger = ChatLogger.instance;
   final Map<String, ChatNetworkService> _services = {};
+  final Map<String, VntBox> _networkBoxes = {};
   Future<void>? _initFuture;
   Timer? _syncTimer;
   bool _initialized = false;
@@ -101,6 +104,8 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   DateTime? _lastPushedStatusAt;
   int _pendingOutgoingAttachmentCount = 0;
   Future<String>? _diagnosticsReportFuture;
+  Future<void>? _discoveryRefreshFuture;
+  bool _isRefreshingDiscovery = false;
   final Set<String> _processingRemoteAssistAcceptSessionIds = <String>{};
 
   ChatAudioService get _audio => ChatAudioService.instance;
@@ -112,6 +117,8 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   bool get isSendingAttachment => _pendingOutgoingAttachmentCount > 0;
 
   bool get isBuildingDiagnostics => _diagnosticsReportFuture != null;
+
+  bool get isRefreshingDiscovery => _isRefreshingDiscovery;
 
   String get chatAudioUnsupportedReason => _audio.unsupportedReason;
 
@@ -160,9 +167,134 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
       if (_localVirtualIpFromBox(entry.value).isEmpty) {
         continue;
       }
-      keys.add(entry.key);
+      keys.add(_chatNetworkKeyForBox(entry.key, entry.value));
     }
     return keys;
+  }
+
+  String? networkScopeForConfig(NetworkConfig? config) {
+    if (config == null) {
+      return null;
+    }
+    final itemKey = config.itemKey.trim();
+    final box = itemKey.isEmpty ? null : vntManager.map[itemKey];
+    if (box != null && !box.isClosed()) {
+      return _chatNetworkKeyForBox(itemKey, box);
+    }
+    return _standaloneChatNetworkKey(config, itemKey);
+  }
+
+  String _chatNetworkKeyForBox(String itemKey, VntBox box) {
+    final linkScope = _linkReachabilityScope(box);
+    if (linkScope != null) {
+      return linkScope;
+    }
+    final config = box.getNetConfig();
+    return config == null ? itemKey : _standaloneChatNetworkKey(config, itemKey);
+  }
+
+  String _standaloneChatNetworkKey(NetworkConfig config, String itemKey) {
+    final credential = _chatCredential(config);
+    final server = _firstConfiguredChatServer(config);
+    if (credential == null || server == null) {
+      return 'config:${itemKey.trim()}';
+    }
+    return _hashChatNetworkKey(
+      credential: credential,
+      canonicalServer: server,
+    );
+  }
+
+  String? _chatCredential(NetworkConfig config) {
+    final token = config.token.trim();
+    final password = config.groupPassword.trim();
+    if (token.isEmpty && password.isEmpty) {
+      return null;
+    }
+    return '$token\n$password';
+  }
+
+  Set<String> _normalizedChatServers(NetworkConfig config) {
+    return config.v2CompatibleServerList
+        .map(_normalizeChatServerText)
+        .where((server) => server.isNotEmpty)
+        .toSet();
+  }
+
+  String? _firstConfiguredChatServer(NetworkConfig config) {
+    final servers = _normalizedChatServers(config).toList()..sort();
+    return servers.isEmpty ? null : servers.first;
+  }
+
+  String _normalizeChatServerText(String server) {
+    final trimmed = server.trim().toLowerCase();
+    for (final prefix in [
+      'quic://',
+      'udp://',
+      'tcp://',
+      'wss://',
+      'ws://',
+      'dynamic://',
+    ]) {
+      if (trimmed.startsWith(prefix)) {
+        return trimmed.substring(prefix.length);
+      }
+    }
+    if (trimmed.startsWith('txt:')) {
+      return trimmed.substring('txt:'.length);
+    }
+    return trimmed;
+  }
+
+  String? _linkReachabilityScope(VntBox box) {
+    final current = box.currentDevice();
+    final network = current['virtualNetwork']?.toString().trim();
+    final netmask = current['virtualNetmask']?.toString().trim();
+    final gateway = current['virtualGateway']?.toString().trim();
+    final broadcast = current['broadcastIp']?.toString().trim();
+    final ip = current['virtualIp']?.toString().trim();
+    final parts = <String>[
+      if (network != null && network.isNotEmpty) network,
+      if (netmask != null && netmask.isNotEmpty) netmask,
+      if (gateway != null && gateway.isNotEmpty) gateway,
+      if (broadcast != null && broadcast.isNotEmpty) broadcast,
+    ];
+    if (parts.length < 2) {
+      return null;
+    }
+    final digest = sha256.convert(
+      utf8.encode('chat-link-v1\n${parts.join('\n').toLowerCase()}'),
+    );
+    final label = network != null && network.isNotEmpty
+        ? network
+        : (ip != null && ip.isNotEmpty ? ip : 'link');
+    return 'link:${digest.toString().substring(0, 24)}:$label';
+  }
+
+  String _hashChatNetworkKey({
+    required String credential,
+    required String canonicalServer,
+  }) {
+    final digest = sha256.convert(
+      utf8.encode('chat-v1\n$credential\n$canonicalServer'),
+    );
+    return 'net:${digest.toString().substring(0, 24)}';
+  }
+
+  VntBox? _boxForNetworkKey(String networkKey) {
+    final box = _networkBoxes[networkKey];
+    if (box != null && !box.isClosed()) {
+      return box;
+    }
+    for (final entry in vntManager.map.entries) {
+      if (entry.value.isClosed()) {
+        continue;
+      }
+      if (_chatNetworkKeyForBox(entry.key, entry.value) == networkKey) {
+        return entry.value;
+      }
+    }
+    return null;
   }
 
   String _localVirtualIpFromBox(VntBox box) {
@@ -353,6 +485,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
       await service.dispose();
     }
     _services.clear();
+    _networkBoxes.clear();
     await _audio.dispose();
     _initialized = false;
     await _logger.info('manager', '聊天室管理器已释放');
@@ -361,7 +494,6 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   Future<void> syncConnections() async {
     final activeKeys = <String>{};
     for (final entry in vntManager.map.entries) {
-      final key = entry.key;
       final box = entry.value;
       if (box.isClosed()) {
         continue;
@@ -370,7 +502,13 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
       if (localIp.isEmpty) {
         continue;
       }
+      final key = _chatNetworkKeyForBox(entry.key, box);
+      if (activeKeys.contains(key)) {
+        _networkBoxes.putIfAbsent(key, () => box);
+        continue;
+      }
       activeKeys.add(key);
+      _networkBoxes[key] = box;
       final service = _services.putIfAbsent(
         key,
         () => ChatNetworkService(
@@ -425,6 +563,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     for (final key in staleKeys) {
       await _services.remove(key)?.dispose();
       await _repository.markNetworkPeersOffline(key);
+      _networkBoxes.remove(key);
       _networkStartRetryCounts.remove(key);
       if (remoteAssistSession?.networkKey == key) {
         remoteAssistSession = remoteAssistSession?.copyWith(
@@ -515,11 +654,19 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     );
 
     final peers = box.peerDeviceList();
+    final reachablePeers = peers
+        .where((peer) =>
+            peer.status.trim().toLowerCase() == 'online' &&
+            _vntPeerIsReachable(box, peer.virtualIp))
+        .toList(growable: false);
     final seen = <String>{localPeerId};
     for (final peer in peers) {
       final peerId = ChatIds.peerId(networkKey, peer.virtualIp);
       seen.add(peerId);
       final existing = await _repository.getPeer(peerId);
+      final isReachable = reachablePeers.any(
+        (item) => item.virtualIp == peer.virtualIp,
+      );
       await _repository.upsertPeer(
         ChatPeer(
           peerId: peerId,
@@ -529,7 +676,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
               ? existing!.deviceName
               : (peer.name.isNotEmpty ? peer.name : peer.virtualIp),
           remark: existing?.remark ?? '',
-          isOnline: peer.status.trim().toLowerCase() == 'online',
+          isOnline: isReachable,
           lastSeenAt: now,
           capabilities: existing?.capabilities ?? const [],
           createdAt: existing?.createdAt ?? now,
@@ -551,7 +698,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
         ),
       );
     }
-    await service.refreshPeers(peers);
+    await service.refreshPeers(reachablePeers);
     await _logger.info(
       'manager.discovery',
       '同步在线设备完成',
@@ -559,8 +706,17 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
       extra: {
         'localPeerId': localPeerId,
         'peerCount': peers.length,
+        'reachablePeerCount': reachablePeers.length,
       },
     );
+  }
+
+  bool _vntPeerIsReachable(VntBox box, String virtualIp) {
+    final route = box.route(virtualIp);
+    if (route == null) {
+      return false;
+    }
+    return route.rt > 0 && route.rt < 9999;
   }
 
   Future<void> _purgeRetentionIfNeeded({bool force = false}) async {
@@ -684,7 +840,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
         ? peerId.substring(networkKey.length + 1)
         : peerId;
     final localPeerId = _localPeerIdForNetwork(networkKey);
-    final localBox = vntManager.map[networkKey];
+    final localBox = _boxForNetworkKey(networkKey);
     final localDeviceName = localPeerId == peerId && localBox != null
         ? localBox.getNetConfig()?.deviceName.trim()
         : null;
@@ -715,7 +871,11 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   }
 
   Duration _statusCooldownForMessage(String message) {
-    if (message.contains('防火墙') || message.contains('虚拟IP')) {
+    if (message.contains('防火墙') ||
+        message.contains('虚拟IP') ||
+        message.contains('聊天室网络异常') ||
+        message.contains('聊天室运行异常') ||
+        message.contains('聊天室音频异常')) {
       return const Duration(seconds: 90);
     }
     return const Duration(seconds: 3);
@@ -781,6 +941,26 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
   }
 
   Future<void> debugRefreshNow() async {
+    final running = _discoveryRefreshFuture;
+    if (running != null) {
+      return running;
+    }
+    _isRefreshingDiscovery = true;
+    notifyListeners();
+    final future = _debugRefreshNowInternal();
+    _discoveryRefreshFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_discoveryRefreshFuture, future)) {
+        _discoveryRefreshFuture = null;
+      }
+      _isRefreshingDiscovery = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _debugRefreshNowInternal() async {
     if (_lastChatFirewallResult?.success != true) {
       await _ensureFirewallRules(
         includeRemoteAssist: false,
@@ -793,7 +973,25 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     }
     await _logger.info('debug', '手动触发聊天室联调刷新');
     await syncConnections();
-    _pushStatus('聊天室状态已刷新');
+    unawaited(_syncKnownPublicChannelsToConnectedNetworks());
+    _pushStatus('聊天室发现已刷新');
+  }
+
+  Future<void> _syncKnownPublicChannelsToConnectedNetworks() async {
+    try {
+      await Future.wait(
+        connectedNetworkKeys.map(_syncKnownPublicChannelsToOnlinePeers),
+      );
+    } catch (error, stackTrace) {
+      await _logger.warn(
+        'channel.sync',
+        '刷新后补同步公开频道失败',
+        extra: {
+          'error': error.toString(),
+          'stackTrace': stackTrace.toString(),
+        },
+      );
+    }
   }
 
   Future<void> clearAllChatData() async {
@@ -1318,7 +1516,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     if (service != null && service.localVirtualIp.isNotEmpty) {
       return ChatIds.peerId(networkKey, service.localVirtualIp);
     }
-    final box = vntManager.map[networkKey];
+    final box = _boxForNetworkKey(networkKey);
     if (box != null && !box.isClosed()) {
       final localIp = _localVirtualIpFromBox(box);
       if (localIp.isNotEmpty) {
@@ -1333,7 +1531,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     if (localPeerId == null) {
       return null;
     }
-    final box = vntManager.map[networkKey];
+    final box = _boxForNetworkKey(networkKey);
     final localIp = localPeerId.startsWith('$networkKey:')
         ? localPeerId.substring(networkKey.length + 1)
         : localPeerId;
@@ -1739,6 +1937,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     required String networkKey,
     required String name,
     required bool isPrivate,
+    String password = '',
     List<ChatPeer> invitedPeers = const [],
   }) async {
     final localPeerId = await _ensureLocalPeerForNetwork(networkKey);
@@ -1749,12 +1948,14 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     final now = DateTime.now();
     final channelId = _uuid.v4();
     final conversationId = ChatIds.channelConversationId(networkKey, channelId);
+    final passwordHash = _roomPasswordHash(password);
     final channel = ChatChannel(
       channelId: channelId,
       networkKey: networkKey,
       name: name.trim(),
       ownerPeerId: localPeerId,
       isPrivate: isPrivate,
+      passwordHash: passwordHash,
       joined: true,
       archived: false,
       createdAt: now,
@@ -1809,6 +2010,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
               'name': name.trim(),
               'ownerPeerId': localPeerId,
               'isPrivate': true,
+              'passwordHash': passwordHash,
             },
           );
         } catch (error) {
@@ -1842,6 +2044,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
           'name': name.trim(),
           'ownerPeerId': localPeerId,
           'isPrivate': false,
+          'passwordHash': passwordHash,
         },
       );
     }
@@ -1855,14 +2058,25 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
         'channelId': channelId,
         'name': name.trim(),
         'isPrivate': isPrivate,
+        'hasPassword': passwordHash.isNotEmpty,
         'invitedCount': invitedPeers.length,
       },
     );
   }
 
-  Future<void> joinChannel(ChatChannel channel) async {
+  Future<void> joinChannel(ChatChannel channel, {String password = ''}) async {
     final localPeerId = _localPeerIdForNetwork(channel.networkKey);
     if (localPeerId == null) {
+      return;
+    }
+    if (!_roomPasswordMatches(channel, password)) {
+      _pushStatus('房间密码不正确，无法加入');
+      await _logger.warn(
+        'channel',
+        '房间密码校验失败',
+        networkKey: channel.networkKey,
+        extra: {'channelId': channel.channelId},
+      );
       return;
     }
     final now = DateTime.now();
@@ -1900,6 +2114,26 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
         'channelId': channel.channelId,
       },
     );
+  }
+
+  bool channelRequiresPassword(ChatChannel channel) {
+    return channel.passwordHash.trim().isNotEmpty && !channel.joined;
+  }
+
+  String _roomPasswordHash(String password) {
+    final trimmed = password.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    return sha256.convert(utf8.encode(trimmed)).toString();
+  }
+
+  bool _roomPasswordMatches(ChatChannel channel, String password) {
+    final expected = channel.passwordHash.trim();
+    if (expected.isEmpty || channel.joined) {
+      return true;
+    }
+    return _roomPasswordHash(password) == expected;
   }
 
   Future<void> leaveChannel(ChatChannel channel) async {
@@ -2006,6 +2240,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
           'name': channel.name,
           'ownerPeerId': channel.ownerPeerId,
           'isPrivate': true,
+          'passwordHash': channel.passwordHash,
         },
       );
     }
@@ -2087,6 +2322,24 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     );
   }
 
+  Future<void> _syncKnownPublicChannelsToOnlinePeers(String networkKey) async {
+    final localPeerId = _localPeerIdForNetwork(networkKey);
+    final peers = await _repository.listPeers(
+      networkKey: networkKey,
+      onlineOnly: true,
+      excludeLocal: true,
+      localPeerId: localPeerId,
+    );
+    await Future.wait(
+      peers.map(
+        (peer) => _syncKnownPublicChannelsToPeer(
+          networkKey: networkKey,
+          peerId: peer.peerId,
+        ),
+      ),
+    );
+  }
+
   Future<void> renameChannel(ChatChannel channel, String newName) async {
     final localPeerId = _localPeerIdForNetwork(channel.networkKey);
     final trimmed = newName.trim();
@@ -2125,6 +2378,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
         'name': trimmed,
         'ownerPeerId': channel.ownerPeerId,
         'isPrivate': channel.isPrivate,
+        'passwordHash': channel.passwordHash,
       },
     );
     await _reloadSidebar();
@@ -4070,12 +4324,19 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
       (envelope.payload['kind'] as String?) ?? ChatMessageKind.text.name,
     );
     final sender = await _repository.getPeer(senderPeerId);
-    final conversationId = envelope.conversationId ??
-        ChatIds.directConversationId(
-          networkKey,
-          _localPeerIdForNetwork(networkKey)!,
-          senderPeerId,
-        );
+    final channelId = envelope.channelId;
+    final localPeerId = _localPeerIdForNetwork(networkKey);
+    if (channelId == null && localPeerId == null) {
+      return;
+    }
+    final conversationId = channelId == null
+        ? (envelope.conversationId ??
+            ChatIds.directConversationId(
+              networkKey,
+              localPeerId!,
+              senderPeerId,
+            ))
+        : ChatIds.channelConversationId(networkKey, channelId);
     final existing = await _repository.getMessage(
       (envelope.payload['messageId'] as String?) ?? envelope.messageId,
     );
@@ -4094,8 +4355,8 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
         status: ChatMessageStatus.delivered,
         text: (envelope.payload['text'] as String?) ?? '',
         attachmentId: null,
-        peerId: envelope.channelId == null ? senderPeerId : null,
-        channelId: envelope.channelId,
+        peerId: channelId == null ? senderPeerId : null,
+        channelId: channelId,
         metadata: const {},
         sentAt: DateTime.fromMillisecondsSinceEpoch(envelope.sentAt),
         receivedAt: DateTime.now(),
@@ -4105,14 +4366,14 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     await _repository.touchConversation(
       conversationId: conversationId,
       networkKey: networkKey,
-      type: envelope.channelId == null
+      type: channelId == null
           ? ChatConversationType.direct
           : ChatConversationType.channel,
-      title: envelope.channelId == null
+      title: channelId == null
           ? (sender?.displayName ?? envelope.fromDeviceName)
-          : ((await _repository.getChannel(envelope.channelId!))?.name ?? '频道'),
-      peerId: envelope.channelId == null ? senderPeerId : null,
-      channelId: envelope.channelId,
+          : ((await _repository.getChannel(channelId))?.name ?? '频道'),
+      peerId: channelId == null ? senderPeerId : null,
+      channelId: channelId,
       preview: (envelope.payload['text'] as String?) ?? '',
       messageTime: DateTime.now(),
       incrementUnread: selectedConversationId != conversationId,
@@ -4155,8 +4416,11 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
     final joined = envelope.type == ChatEnvelopeType.channelInvite;
     final existing = await _repository.getChannel(channelId);
     await _repository.upsertChannel(
-      existing?.copyWith(
+          existing?.copyWith(
             name: (envelope.payload['name'] as String?) ?? existing.name,
+            passwordHash:
+                (envelope.payload['passwordHash'] as String?) ??
+                    existing.passwordHash,
             joined: joined ? true : existing.joined,
             updatedAt: now,
           ) ??
@@ -4167,6 +4431,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
             ownerPeerId:
                 (envelope.payload['ownerPeerId'] as String?) ?? senderPeerId,
             isPrivate: isPrivate,
+            passwordHash: (envelope.payload['passwordHash'] as String?) ?? '',
             joined: joined,
             archived: false,
             createdAt: now,
@@ -4212,6 +4477,7 @@ class ChatManager extends ChangeNotifier implements ChatNetworkDelegate {
         ),
       );
     }
+    await _reloadSidebar();
     await _logger.info(
       'channel',
       '收到频道元数据',

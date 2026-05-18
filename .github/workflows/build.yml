@@ -86,7 +86,7 @@ jobs:
         run: |
           VERSION="${{ inputs.release_version }}"
           VERSION="${VERSION#v}"
-          sed -i "s/^version: .*/version: $VERSION/" pubspec.yaml
+          perl -i -pe "s/^version: .*/version: $VERSION/" pubspec.yaml
           echo "pubspec version → $VERSION"
 
       - name: 设置 Xcode 版本

@@ -243,39 +243,58 @@ class ChatNetworkService {
         .toSet();
     final now = DateTime.now();
     _lastHelloAt.removeWhere((ip, _) => !onlineIps.contains(ip));
+    final helloTasks = <Future<void>>[];
     for (final peerIp in onlineIps) {
       final lastAt = _lastHelloAt[peerIp];
       if (lastAt == null || now.difference(lastAt) >= helloInterval) {
         _lastHelloAt[peerIp] = now;
-        await sendEnvelope(
-          remoteIp: peerIp,
-          envelope: ChatEnvelope(
-            messageId: '${networkKey}_${now.microsecondsSinceEpoch}_hello',
-            type: ChatEnvelopeType.hello,
-            fromVirtualIp: localVirtualIp,
-            fromDeviceName: localDeviceName,
-            sentAt: now.millisecondsSinceEpoch,
-            payload: {
-              'capabilities': const [
-                'text',
-                'image',
-                'file',
-                'voice_note',
-                'voice_call',
-                'channels',
-              ],
-            },
-          ),
-        );
-        await ChatLogger.instance.info(
-          'network.discovery',
-          '发送 hello',
-          networkKey: networkKey,
-          extra: {
-            'remoteIp': peerIp,
-          },
-        );
+        helloTasks.add(_sendDiscoveryHello(peerIp, now));
       }
+    }
+    await Future.wait(helloTasks);
+  }
+
+  Future<void> _sendDiscoveryHello(String peerIp, DateTime now) async {
+    try {
+      await sendEnvelope(
+        remoteIp: peerIp,
+        envelope: ChatEnvelope(
+          messageId: '${networkKey}_${now.microsecondsSinceEpoch}_hello',
+          type: ChatEnvelopeType.hello,
+          fromVirtualIp: localVirtualIp,
+          fromDeviceName: localDeviceName,
+          sentAt: now.millisecondsSinceEpoch,
+          payload: {
+            'capabilities': const [
+              'text',
+              'image',
+              'file',
+              'voice_note',
+              'voice_call',
+              'channels',
+            ],
+          },
+        ),
+      );
+      await ChatLogger.instance.info(
+        'network.discovery',
+        '发送 hello',
+        networkKey: networkKey,
+        extra: {
+          'remoteIp': peerIp,
+        },
+      );
+    } catch (error, stackTrace) {
+      await ChatLogger.instance.warn(
+        'network.discovery',
+        '发送 hello 失败',
+        networkKey: networkKey,
+        extra: {
+          'remoteIp': peerIp,
+          'error': error.toString(),
+          'stackTrace': stackTrace.toString(),
+        },
+      );
     }
   }
 

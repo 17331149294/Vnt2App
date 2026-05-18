@@ -128,8 +128,13 @@ class _TopToastState extends State<_TopToast> with SingleTickerProviderStateMixi
                 child: Material(
                   color: Colors.transparent,
                   child: Container(
-                    constraints: const BoxConstraints(maxWidth: 500),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width - 32,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                     decoration: BoxDecoration(
                       color: widget.isSuccess
                           ? const Color(0xFF4CAF50) // 绿色
@@ -160,8 +165,7 @@ class _TopToastState extends State<_TopToast> with SingleTickerProviderStateMixi
                               fontSize: context.fontSmall,
                               fontWeight: FontWeight.w500,
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                            softWrap: true,
                           ),
                         ),
                       ],

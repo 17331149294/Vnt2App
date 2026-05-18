@@ -219,7 +219,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         rtx: _rtx,
         fec: _fec,
         noTun: _noTun,
-        allowMapping: _allowPortMapping || portMappings.isNotEmpty,
+        allowMapping: _allowPortMapping,
         tunnelPort: int.tryParse(_tunnelPortController.text.trim()) ?? 0,
       );
       Navigator.pop(context, config);
@@ -562,39 +562,46 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                         '留空自动分配；需要固定本机直连端口时填写 1~65535',
                       ),
                       const SizedBox(height: 16),
-                      _buildCheckboxField(
-                        '关闭 TUN',
-                        _noTun,
+                      _buildRadioGroup(
+                        '无TUN模式',
+                        [('开启', 'OPEN'), ('关闭', 'CLOSE')],
+                        _noTun ? 'OPEN' : 'CLOSE',
                         (value) {
                           setState(() {
-                            _noTun = value ?? false;
+                            _noTun = value == 'OPEN';
                           });
                         },
                       ),
-                      _buildCheckboxField(
-                        'QUIC 增强通道',
-                        _rtx,
+                      const SizedBox(height: 16),
+                      _buildRadioGroup(
+                        'QUIC优化传输',
+                        [('开启', 'OPEN'), ('关闭', 'CLOSE')],
+                        _rtx ? 'OPEN' : 'CLOSE',
                         (value) {
                           setState(() {
-                            _rtx = value ?? false;
+                            _rtx = value == 'OPEN';
                           });
                         },
                       ),
-                      _buildCheckboxField(
-                        'FEC',
-                        _fec,
+                      const SizedBox(height: 16),
+                      _buildRadioGroup(
+                        'FEC前向纠错',
+                        [('开启', 'OPEN'), ('关闭', 'CLOSE')],
+                        _fec ? 'OPEN' : 'CLOSE',
                         (value) {
                           setState(() {
-                            _fec = value ?? false;
+                            _fec = value == 'OPEN';
                           });
                         },
                       ),
-                      _buildCheckboxField(
-                        '允许端口映射',
-                        _allowPortMapping,
+                      const SizedBox(height: 16),
+                      _buildRadioGroup(
+                        '端口映射',
+                        [('开启', 'OPEN'), ('关闭', 'CLOSE')],
+                        _allowPortMapping ? 'OPEN' : 'CLOSE',
                         (value) {
                           setState(() {
-                            _allowPortMapping = value ?? false;
+                            _allowPortMapping = value == 'OPEN';
                           });
                         },
                       ),
@@ -620,7 +627,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                           });
                         },
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 24),
                       _buildDynamicFields(
                         'UDP STUN服务器',
                         _udpStunServers,
@@ -670,6 +677,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
         labelText: labelText,
         suffixIcon: suffixIcon,
         helperText: helperText,
+        helperMaxLines: 4,
       ),
       maxLength: maxLength,
       validator: validator,
@@ -892,61 +900,82 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
 
   Widget _buildServerAddressFields() {
     const protocols = ['TCP', 'QUIC', 'WSS', 'DYNAMIC'];
+    final isNarrowScreen = MediaQuery.of(context).size.width < 600;
     return Column(
       children: [
         ..._serverAddressControllers.asMap().entries.map((entry) {
           final index = entry.key;
           final controller = entry.value;
+          final protocolDropdown = DropdownButtonFormField<String>(
+            value: _serverProtocolAt(index),
+            decoration: const InputDecoration(labelText: '协议'),
+            isExpanded: true,
+            items: protocols.map((protocol) {
+              return DropdownMenuItem(
+                value: protocol,
+                child: Text(protocol.toLowerCase()),
+              );
+            }).toList(),
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              setState(() {
+                while (_serverProtocolSelections.length <= index) {
+                  _serverProtocolSelections.add(_communicationMethod);
+                }
+                _serverProtocolSelections[index] = value;
+                if (index == 0) {
+                  _communicationMethod = value;
+                }
+              });
+            },
+          );
+          final addressField = CustomTooltipTextField(
+            controller: controller,
+            labelText: '服务器地址${index == 0 ? '' : ' ---$index'}',
+            tooltipMessage:
+                '支持多个 VNTS 2.0 地址；协议从左侧选择，地址填写 host:port 或 txt:domain',
+            maxLength: 96,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return null;
+              }
+              final error = _validateServerAddress(value);
+              return error == null ? null : FormatException(error).toString();
+            },
+          );
+          if (isNarrowScreen) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(width: 118, child: protocolDropdown),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.remove_circle),
+                        onPressed: () => _removeServerAddressController(index),
+                      ),
+                    ],
+                  ),
+                  addressField,
+                ],
+              ),
+            );
+          }
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
                 width: 116,
-                child: DropdownButtonFormField<String>(
-                  value: _serverProtocolAt(index),
-                  decoration: const InputDecoration(labelText: '协议'),
-                  isExpanded: true,
-                  items: protocols.map((protocol) {
-                    return DropdownMenuItem(
-                      value: protocol,
-                      child: Text(protocol.toLowerCase()),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-                    setState(() {
-                      while (_serverProtocolSelections.length <= index) {
-                        _serverProtocolSelections.add(_communicationMethod);
-                      }
-                      _serverProtocolSelections[index] = value;
-                      if (index == 0) {
-                        _communicationMethod = value;
-                      }
-                    });
-                  },
-                ),
+                child: protocolDropdown,
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: CustomTooltipTextField(
-                  controller: controller,
-                  labelText: '服务器地址${index == 0 ? '' : ' ---$index'}',
-                  tooltipMessage:
-                      '支持多个 VNTS 2.0 地址；协议从左侧选择，地址填写 host:port 或 txt:domain',
-                  maxLength: 96,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return null;
-                    }
-                    final error = _validateServerAddress(value);
-                    return error == null
-                        ? null
-                        : FormatException(error).toString();
-                  },
-                ),
-              ),
+              Expanded(child: addressField),
               IconButton(
                 icon: const Icon(Icons.remove_circle),
                 onPressed: () => _removeServerAddressController(index),

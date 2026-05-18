@@ -164,17 +164,25 @@ class VntBox {
         udpStun: config.effectiveUdpStun,
         tcpStun: config.effectiveTcpStun,
         tunnelPort: config.tunnelPort > 0 ? config.tunnelPort : null);
+    void safeSend(Object message) {
+      try {
+        uiCall.send(message);
+      } catch (e) {
+        debugPrint('发送连接状态异常 $e');
+      }
+    }
+
     var vntCall = VntApiCallback(successFn: () {
-      uiCall.send('success');
+      safeSend('success');
     }, createTunFn: (info) {
-      // uiCall.send(info);
+      // safeSend(info);
     }, connectFn: (info) {
-      uiCall.send(info);
+      safeSend(info);
     }, handshakeFn: (info) {
-      // uiCall.send(info);
+      // safeSend(info);
       return true;
     }, registerFn: (info) {
-      // uiCall.send(info);
+      // safeSend(info);
       return true;
     }, generateTunFn: (info) async {
       //创建vpn
@@ -183,7 +191,6 @@ class VntBox {
         return fd;
       } catch (e) {
         debugPrint('创建vpn异常 $e');
-        uiCall.send('stop');
         return 0;
       }
     }, peerClientListFn: (info) {
@@ -192,9 +199,9 @@ class VntBox {
       final serverCode =
           info.serverCode == null ? '' : ' 服务端错误码 ${info.serverCode}';
       debugPrint('服务异常 类型 ${info.code.name}$serverCode ${info.msg ?? ''}');
-      uiCall.send(info);
+      safeSend(info);
     }, stopFn: () {
-      uiCall.send('stop');
+      safeSend('stop');
     });
     var vntApi = await vntInit(vntConfig: vntConfig, call: vntCall);
 

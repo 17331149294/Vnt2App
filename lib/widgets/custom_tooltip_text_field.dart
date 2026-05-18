@@ -60,6 +60,7 @@ class _CustomTooltipTextFieldState extends State<CustomTooltipTextField> {
           Text(
             '${widget.labelText} ${widget.tooltipMessage}',
             style: TextStyle(color: Colors.black, fontSize: context.fontSmall),
+            softWrap: true,
           ),
         TextFormField(
           controller: widget.controller,

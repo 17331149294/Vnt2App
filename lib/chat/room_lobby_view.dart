@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:vnt2_app/utils/toast_utils.dart';
 
 import 'chat_manager.dart';
 import 'chat_models.dart';
@@ -25,6 +26,8 @@ class RoomLobbyView extends StatefulWidget {
 
 class _RoomLobbyViewState extends State<RoomLobbyView> {
   int _lastStatusVersion = -1;
+
+  bool get _isRefreshingDiscovery => chatManager.isRefreshingDiscovery;
 
   String? get _scopedNetworkKey {
     final value = widget.scopedNetworkKey?.trim() ?? '';
@@ -59,7 +62,19 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
   @override
   void initState() {
     super.initState();
-    unawaited(chatManager.init());
+    unawaited(_initAndSync());
+  }
+
+  Future<void> _initAndSync() async {
+    await chatManager.init();
+    await chatManager.syncConnections();
+  }
+
+  Future<void> _refreshDiscovery() async {
+    if (_isRefreshingDiscovery) {
+      return;
+    }
+    await chatManager.debugRefreshNow();
   }
 
   @override
@@ -70,33 +85,21 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
         _showStatusSnackBarIfNeeded(context);
         return LayoutBuilder(
           builder: (context, constraints) {
-            final horizontalPadding = constraints.maxWidth < 520 ? 10.0 : 16.0;
+            final compact = constraints.maxWidth < 600;
+            final horizontalPadding = compact ? 8.0 : 16.0;
             final sections = [
               _buildSectionCard(
                 context: context,
-                icon: Icons.forum_outlined,
-                title: '默认大厅',
-                subtitle: '每个已连接网络自动创建一个公共大厅',
-                count: _lobbyConversations.length,
-                child: _buildLobbyConversationList(),
-              ),
-              _buildSectionCard(
-                context: context,
+                compact: compact,
                 icon: Icons.meeting_room_outlined,
-                title: '房间',
-                subtitle: '创建公开房间或邀请成员加入私密房间',
-                count: _roomConversations.length,
-                trailing: FilledButton.icon(
-                  onPressed: _connectedNetworkKeys.isEmpty
-                      ? null
-                      : _showCreateRoomDialog,
-                  icon: const Icon(Icons.add),
-                  label: const Text('创建房间'),
-                ),
+                title: '大厅和房间',
+                subtitle: '大厅置顶显示，可创建公开房间或邀请成员加入私密房间',
+                count: _lobbyConversations.length + _roomConversations.length,
                 child: _buildRoomList(),
               ),
               _buildSectionCard(
                 context: context,
+                compact: compact,
                 icon: Icons.people_alt_outlined,
                 title: '在线成员',
                 subtitle: '点击成员发起私信，右键查看更多操作',
@@ -108,11 +111,11 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
             return ListView(
               padding: EdgeInsets.all(horizontalPadding),
               children: [
-                _buildOverviewPanel(context),
-                const SizedBox(height: 14),
-                _buildDebugToolsCard(context),
-                const SizedBox(height: 14),
-                _buildResponsiveCardGrid(sections),
+                _buildOverviewPanel(context, compact: compact),
+                SizedBox(height: compact ? 8 : 14),
+                _buildDebugToolsCard(context, compact: compact),
+                SizedBox(height: compact ? 8 : 14),
+                _buildResponsiveCardGrid(sections, compact: compact),
               ],
             );
           },
@@ -121,14 +124,17 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     );
   }
 
-  Widget _buildResponsiveCardGrid(List<Widget> children) {
+  Widget _buildResponsiveCardGrid(
+    List<Widget> children, {
+    bool compact = false,
+  }) {
     if (children.isEmpty) {
       return const SizedBox.shrink();
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        const spacing = 14.0;
-        const minCardWidth = 320.0;
+        final spacing = compact ? 8.0 : 14.0;
+        final minCardWidth = compact ? 260.0 : 320.0;
         var columns =
             ((constraints.maxWidth + spacing) / (minCardWidth + spacing))
                 .floor();
@@ -155,7 +161,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     );
   }
 
-  Widget _buildOverviewPanel(BuildContext context) {
+  Widget _buildOverviewPanel(BuildContext context, {bool compact = false}) {
     final colorScheme = Theme.of(context).colorScheme;
     final hasNetwork = _connectedNetworkKeys.isNotEmpty;
     return Container(
@@ -168,31 +174,34 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(compact ? 10 : 16),
         border: Border.all(color: colorScheme.primary.withOpacity(0.12)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: EdgeInsets.all(compact ? 10 : 18),
         child: Wrap(
-          spacing: 14,
-          runSpacing: 14,
+          spacing: compact ? 8 : 14,
+          runSpacing: compact ? 8 : 14,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Container(
-              width: 46,
-              height: 46,
+              width: compact ? 34 : 46,
+              height: compact ? 34 : 46,
               decoration: BoxDecoration(
                 color: colorScheme.surface.withOpacity(0.72),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(compact ? 9 : 14),
               ),
               child: Icon(
                 hasNetwork ? Icons.hub_outlined : Icons.cloud_off_outlined,
                 color: hasNetwork ? colorScheme.primary : colorScheme.outline,
-                size: 26,
+                size: compact ? 20 : 26,
               ),
             ),
             ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 220, maxWidth: 360),
+              constraints: BoxConstraints(
+                minWidth: compact ? 160 : 220,
+                maxWidth: compact ? 260 : 360,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -200,9 +209,10 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                     hasNetwork ? '聊天室已连接' : '等待组网连接',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w700,
+                          fontSize: compact ? 15 : null,
                         ),
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: compact ? 2 : 4),
                   Text(
                     hasNetwork
                         ? '可创建房间、进入大厅或向在线成员发起私信'
@@ -214,18 +224,21 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
             ),
             _buildMetricChip(
               context,
+              compact: compact,
               icon: Icons.lan_outlined,
               label: '网络',
               value: '${_connectedNetworkKeys.length}',
             ),
             _buildMetricChip(
               context,
+              compact: compact,
               icon: Icons.meeting_room_outlined,
               label: '房间',
               value: '${_roomConversations.length}',
             ),
             _buildMetricChip(
               context,
+              compact: compact,
               icon: Icons.people_alt_outlined,
               label: '在线',
               value: '${_onlinePeers.length}',
@@ -238,13 +251,17 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
 
   Widget _buildMetricChip(
     BuildContext context, {
+    bool compact = false,
     required IconData icon,
     required String label,
     required String value,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 12,
+        vertical: compact ? 5 : 9,
+      ),
       decoration: BoxDecoration(
         color: colorScheme.surface.withOpacity(0.72),
         borderRadius: BorderRadius.circular(999),
@@ -253,10 +270,10 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: colorScheme.primary),
-          const SizedBox(width: 8),
+          Icon(icon, size: compact ? 15 : 18, color: colorScheme.primary),
+          SizedBox(width: compact ? 5 : 8),
           Text(label, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(width: 6),
+          SizedBox(width: compact ? 4 : 6),
           Text(
             value,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -285,22 +302,33 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      showTopToast(context, message, isSuccess: !_isErrorStatusMessage(message));
     });
   }
 
-  Widget _buildDebugToolsCard(BuildContext context) {
+  bool _isErrorStatusMessage(String message) {
+    return message.contains('失败') ||
+        message.contains('错误') ||
+        message.contains('异常') ||
+        message.contains('超时') ||
+        message.contains('不可用') ||
+        message.contains('无法');
+  }
+
+  Widget _buildDebugToolsCard(BuildContext context, {bool compact = false}) {
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
+      color: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withOpacity(0.34),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(compact ? 10 : 14),
         side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.5)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.all(compact ? 10 : 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -308,24 +336,42 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
               '联调工具',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
+                    fontSize: compact ? 15 : null,
                   ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: compact ? 4 : 8),
             Text(
               '网络 ${_connectedNetworkKeys.length} 个 · 在线设备 ${_onlinePeers.length} 个',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: compact ? 8 : 12),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: compact ? 6 : 8,
+              runSpacing: compact ? 6 : 8,
               children: [
                 OutlinedButton.icon(
-                  onPressed: () => chatManager.debugRefreshNow(),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('刷新发现'),
+                  style: compact ? _compactButtonStyle(context) : null,
+                  onPressed:
+                      _isRefreshingDiscovery ? null : _refreshDiscovery,
+                  icon: _isRefreshingDiscovery
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  label: Text(_isRefreshingDiscovery ? '刷新中' : '刷新发现'),
                 ),
                 OutlinedButton.icon(
+                  style: compact ? _compactButtonStyle(context) : null,
+                  onPressed: _connectedNetworkKeys.isEmpty
+                      ? null
+                      : _showCreateRoomDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('创建房间'),
+                ),
+                OutlinedButton.icon(
+                  style: compact ? _compactButtonStyle(context) : null,
                   onPressed: chatManager.isBuildingDiagnostics
                       ? null
                       : _showDiagnosticsDialog,
@@ -340,6 +386,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                       Text(chatManager.isBuildingDiagnostics ? '加载中' : '查看诊断'),
                 ),
                 FilledButton.tonalIcon(
+                  style: compact ? _compactFilledButtonStyle(context) : null,
                   onPressed: _confirmClearChatData,
                   icon: const Icon(Icons.cleaning_services_outlined),
                   label: const Text('清空聊天数据'),
@@ -354,6 +401,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
 
   Widget _buildSectionCard({
     required BuildContext context,
+    bool compact = false,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -365,17 +413,17 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
       margin: EdgeInsets.zero,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(compact ? 10 : 14),
         side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.5)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.all(compact ? 10 : 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Wrap(
               spacing: 8,
-              runSpacing: 8,
+              runSpacing: compact ? 4 : 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Icon(
@@ -388,6 +436,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
+                        fontSize: compact ? 15 : null,
                       ),
                 ),
                 const SizedBox(width: 8),
@@ -413,13 +462,14 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
               ],
             ),
             const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
+            if (!compact)
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            SizedBox(height: compact ? 8 : 12),
             SizedBox(
-              height: 300,
+              height: compact ? 230 : 300,
               child: SingleChildScrollView(
                 child: child,
               ),
@@ -427,6 +477,24 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
           ],
         ),
       ),
+    );
+  }
+
+  ButtonStyle _compactButtonStyle(BuildContext context) {
+    return OutlinedButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      textStyle: Theme.of(context).textTheme.labelMedium,
+    );
+  }
+
+  ButtonStyle _compactFilledButtonStyle(BuildContext context) {
+    return FilledButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      textStyle: Theme.of(context).textTheme.labelMedium,
     );
   }
 
@@ -443,6 +511,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
             : '默认公共大厅';
         return _buildSelectableTile(
           selected: selected,
+          accentColor: Theme.of(context).colorScheme.primary,
           onTap: () => widget.onOpenChannelConversation(
             conversation.conversationId,
           ),
@@ -457,89 +526,115 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
   }
 
   Widget _buildRoomList() {
+    final lobbyTiles = _lobbyConversations.map((conversation) {
+      final selected =
+          chatManager.selectedConversationId == conversation.conversationId;
+      final subtitle = _hasMultipleNetworks
+          ? '${conversation.networkKey} · 默认公共大厅'
+          : '默认公共大厅';
+      return _buildSelectableTile(
+        selected: selected,
+        accentColor: Theme.of(context).colorScheme.primary,
+        onTap: () => widget.onOpenChannelConversation(
+          conversation.conversationId,
+        ),
+        title: conversation.title,
+        subtitle: subtitle,
+        trailing: conversation.unreadCount > 0
+            ? _buildUnreadBadge(conversation.unreadCount)
+            : null,
+      );
+    }).toList();
     final rooms = _scopedChannels
         .where((channel) => !ChatManager.isLobbyChannelId(channel.channelId))
         .toList();
-    if (rooms.isEmpty) {
-      return _buildEmptyHint('还没有房间', '点击右上角创建公开房间或私密房间');
+    if (lobbyTiles.isEmpty && rooms.isEmpty) {
+      return _buildEmptyHint('大厅尚未就绪', '连接组网后会自动创建大厅');
     }
     return Column(
-      children: rooms.map((channel) {
-        final conversationId = ChatIds.channelConversationId(
-          channel.networkKey,
-          channel.channelId,
-        );
-        final selected = chatManager.selectedConversationId == conversationId;
-        final isOwner = chatManager.isChannelOwner(channel);
-        final roomTypeLabel = channel.isPrivate
-            ? (channel.joined ? '私密房间 · 已加入' : '私密房间 · 待加入')
-            : (channel.joined ? '公开房间 · 已加入' : '公开房间');
-        final subtitle = _hasMultipleNetworks
-            ? '${channel.networkKey} · $roomTypeLabel'
-            : roomTypeLabel;
-        return _buildSelectableTile(
-          selected: selected,
-          accentColor: channel.isPrivate
-              ? Theme.of(context).colorScheme.tertiary
-              : Theme.of(context).colorScheme.secondary,
-          tags: [_buildRoomTypeTag(channel.isPrivate)],
-          onTap: () => widget.onOpenChannelConversation(conversationId),
-          title: channel.name,
-          subtitle: subtitle,
-          trailing: PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'join') {
-                unawaited(chatManager.joinChannel(channel));
-              } else if (value == 'leave') {
-                unawaited(chatManager.leaveChannel(channel));
-              } else if (value == 'voice') {
-                unawaited(chatManager.joinChannelVoice(channel));
-              } else if (value == 'rename') {
-                unawaited(_showRenameRoomDialog(channel));
-              } else if (value == 'members') {
-                unawaited(_showManageMembersDialog(channel));
-              } else if (value == 'invite') {
-                unawaited(_showInviteMembersDialog(channel));
-              } else if (value == 'archive') {
-                unawaited(chatManager.archiveChannel(channel));
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: channel.joined ? 'leave' : 'join',
-                child: Text(channel.joined ? '退出房间' : '加入房间'),
-              ),
-              PopupMenuItem(
-                value: 'voice',
-                enabled: chatManager.isChatAudioSupported,
-                child: Text(
-                  chatManager.isChatAudioSupported ? '进入语音' : '进入语音（当前平台不支持）',
+      children: [
+        ...lobbyTiles,
+        ...rooms.map((channel) {
+          final conversationId = ChatIds.channelConversationId(
+            channel.networkKey,
+            channel.channelId,
+          );
+          final selected = chatManager.selectedConversationId == conversationId;
+          final isOwner = chatManager.isChannelOwner(channel);
+          final roomTypeLabel = channel.isPrivate
+              ? (channel.joined ? '私密房间 · 已加入' : '私密房间 · 待加入')
+              : (channel.joined ? '公开房间 · 已加入' : '公开房间');
+          final passwordLabel =
+              channel.passwordHash.isNotEmpty && !channel.joined ? ' · 需密码' : '';
+          final subtitle = _hasMultipleNetworks
+              ? '${channel.networkKey} · $roomTypeLabel$passwordLabel'
+              : '$roomTypeLabel$passwordLabel';
+          return _buildSelectableTile(
+            selected: selected,
+            accentColor: channel.isPrivate
+                ? Theme.of(context).colorScheme.tertiary
+                : Theme.of(context).colorScheme.secondary,
+            tags: [_buildRoomTypeTag(channel.isPrivate)],
+            onTap: () => widget.onOpenChannelConversation(conversationId),
+            title: channel.name,
+            subtitle: subtitle,
+            trailing: PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'join') {
+                  unawaited(_joinRoom(channel));
+                } else if (value == 'leave') {
+                  unawaited(chatManager.leaveChannel(channel));
+                } else if (value == 'voice') {
+                  unawaited(chatManager.joinChannelVoice(channel));
+                } else if (value == 'rename') {
+                  unawaited(_showRenameRoomDialog(channel));
+                } else if (value == 'members') {
+                  unawaited(_showManageMembersDialog(channel));
+                } else if (value == 'invite') {
+                  unawaited(_showInviteMembersDialog(channel));
+                } else if (value == 'archive') {
+                  unawaited(chatManager.archiveChannel(channel));
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: channel.joined ? 'leave' : 'join',
+                  child: Text(channel.joined ? '退出房间' : '加入房间'),
                 ),
-              ),
-              if (isOwner)
-                const PopupMenuItem(
-                  value: 'rename',
-                  child: Text('房间改名'),
+                PopupMenuItem(
+                  value: 'voice',
+                  enabled: chatManager.isChatAudioSupported,
+                  child: Text(
+                    chatManager.isChatAudioSupported
+                        ? '进入语音'
+                        : '进入语音（当前平台不支持）',
+                  ),
                 ),
-              if (isOwner)
-                const PopupMenuItem(
-                  value: 'members',
-                  child: Text('管理成员'),
-                ),
-              if (isOwner)
-                const PopupMenuItem(
-                  value: 'invite',
-                  child: Text('邀请成员'),
-                ),
-              if (isOwner)
-                const PopupMenuItem(
-                  value: 'archive',
-                  child: Text('隐藏房间'),
-                ),
-            ],
-          ),
-        );
-      }).toList(),
+                if (isOwner)
+                  const PopupMenuItem(
+                    value: 'rename',
+                    child: Text('房间改名'),
+                  ),
+                if (isOwner)
+                  const PopupMenuItem(
+                    value: 'members',
+                    child: Text('管理成员'),
+                  ),
+                if (isOwner)
+                  const PopupMenuItem(
+                    value: 'invite',
+                    child: Text('邀请成员'),
+                  ),
+                if (isOwner)
+                  const PopupMenuItem(
+                    value: 'archive',
+                    child: Text('隐藏房间'),
+                  ),
+              ],
+            ),
+          );
+        }),
+      ],
     );
   }
 
@@ -634,6 +729,53 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     }
   }
 
+  Future<void> _joinRoom(ChatChannel channel) async {
+    if (!chatManager.channelRequiresPassword(channel)) {
+      await chatManager.joinChannel(channel);
+      return;
+    }
+    final password = await _showRoomPasswordDialog(channel);
+    if (password == null) {
+      return;
+    }
+    await chatManager.joinChannel(channel, password: password);
+  }
+
+  Future<String?> _showRoomPasswordDialog(ChatChannel channel) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('加入 ${channel.name}'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: '房间密码',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) =>
+                Navigator.of(context).pop(controller.text),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              child: const Text('加入'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    return result;
+  }
+
   Widget _buildSelectableTile({
     required bool selected,
     required VoidCallback onTap,
@@ -645,14 +787,15 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     void Function(TapDownDetails details)? onSecondaryTapDown,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.of(context).size.width < 600;
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: EdgeInsets.only(bottom: compact ? 5 : 8),
       decoration: BoxDecoration(
         color: selected
             ? colorScheme.primary.withOpacity(0.08)
             : (accentColor?.withOpacity(0.08) ??
                 colorScheme.surface.withOpacity(0.45)),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(compact ? 9 : 12),
         border: Border.all(
           color: selected
               ? colorScheme.primary.withOpacity(0.20)
@@ -664,8 +807,15 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
         behavior: HitTestBehavior.opaque,
         onSecondaryTapDown: onSecondaryTapDown,
         child: ListTile(
+          dense: true,
+          minVerticalPadding: compact ? 4 : null,
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: compact ? 10 : 16,
+            vertical: compact ? 0 : 4,
+          ),
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(compact ? 9 : 12)),
           onTap: onTap,
           title: Row(
             children: [
@@ -674,6 +824,11 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: compact
+                      ? Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          )
+                      : null,
                 ),
               ),
               for (final tag in tags) ...[
@@ -684,8 +839,9 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
           ),
           subtitle: Text(
             subtitle,
-            maxLines: 2,
+            maxLines: compact ? 1 : 2,
             overflow: TextOverflow.ellipsis,
+            style: compact ? Theme.of(context).textTheme.bodySmall : null,
           ),
           trailing: trailing,
         ),
@@ -762,9 +918,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('当前没有可用的已连接网络')),
-      );
+      showTopToast(context, '当前没有可用的已连接网络', isSuccess: false);
       return;
     }
     String? selectedNetworkKey = chatManager.preferredNetworkKey(
@@ -774,6 +928,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     bool isPrivate = false;
     final selectedIds = <String>{};
     final nameController = TextEditingController();
+    final passwordController = TextEditingController();
     final created = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -871,6 +1026,15 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                         ),
                       ),
                       const SizedBox(height: 12),
+                      TextField(
+                        controller: passwordController,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: '房间密码（可选）',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: isPrivate,
@@ -948,10 +1112,13 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
     );
     if (created != true) {
       nameController.dispose();
+      passwordController.dispose();
       return;
     }
     final trimmed = nameController.text.trim();
+    final password = passwordController.text;
     nameController.dispose();
+    passwordController.dispose();
     if (trimmed.isEmpty) {
       return;
     }
@@ -968,14 +1135,17 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
         networkKey: networkKey,
         name: trimmed,
         isPrivate: isPrivate,
+        password: password,
         invitedPeers: invited,
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ChatManager.roomCreateFailureMessage(error))),
+      showTopToast(
+        context,
+        ChatManager.roomCreateFailureMessage(error),
+        isSuccess: false,
       );
       return;
     }
@@ -1227,15 +1397,12 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
               onPressed: () async {
                 final report = await reportFuture;
                 final navigator = Navigator.of(context);
-                final messenger = ScaffoldMessenger.of(this.context);
                 await Clipboard.setData(ClipboardData(text: report));
                 if (!mounted) {
                   return;
                 }
                 navigator.pop();
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('诊断信息已复制')),
-                );
+                showTopToast(this.context, '诊断信息已复制', isSuccess: true);
               },
               child: const Text('复制'),
             ),
@@ -1275,9 +1442,7 @@ class _RoomLobbyViewState extends State<RoomLobbyView> {
                 if (!mounted) {
                   return;
                 }
-                ScaffoldMessenger.of(this.context).showSnackBar(
-                  const SnackBar(content: Text('日志已复制')),
-                );
+                showTopToast(this.context, '日志已复制', isSuccess: true);
               },
               child: const Text('复制'),
             ),

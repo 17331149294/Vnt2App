@@ -128,6 +128,7 @@ Map<String, dynamic> buildPublicChannelAnnouncementPayload(
     'name': channel.name,
     'ownerPeerId': channel.ownerPeerId,
     'isPrivate': false,
+    'passwordHash': channel.passwordHash,
   };
 }
 
@@ -264,6 +265,7 @@ class ChatChannel {
   final String name;
   final String ownerPeerId;
   final bool isPrivate;
+  final String passwordHash;
   final bool joined;
   final bool archived;
   final DateTime createdAt;
@@ -275,6 +277,7 @@ class ChatChannel {
     required this.name,
     required this.ownerPeerId,
     required this.isPrivate,
+    this.passwordHash = '',
     required this.joined,
     required this.archived,
     required this.createdAt,
@@ -283,6 +286,7 @@ class ChatChannel {
 
   ChatChannel copyWith({
     String? name,
+    String? passwordHash,
     bool? joined,
     bool? archived,
     DateTime? updatedAt,
@@ -293,6 +297,7 @@ class ChatChannel {
       name: name ?? this.name,
       ownerPeerId: ownerPeerId,
       isPrivate: isPrivate,
+      passwordHash: passwordHash ?? this.passwordHash,
       joined: joined ?? this.joined,
       archived: archived ?? this.archived,
       createdAt: createdAt,
@@ -307,6 +312,7 @@ class ChatChannel {
       'name': name,
       'owner_peer_id': ownerPeerId,
       'is_private': isPrivate ? 1 : 0,
+      'password_hash': passwordHash,
       'joined': joined ? 1 : 0,
       'archived': archived ? 1 : 0,
       'created_at': createdAt.millisecondsSinceEpoch,
@@ -321,6 +327,7 @@ class ChatChannel {
       name: map['name'] as String,
       ownerPeerId: map['owner_peer_id'] as String,
       isPrivate: ((map['is_private'] as int?) ?? 0) == 1,
+      passwordHash: (map['password_hash'] as String?) ?? '',
       joined: ((map['joined'] as int?) ?? 0) == 1,
       archived: ((map['archived'] as int?) ?? 0) == 1,
       createdAt: DateTime.fromMillisecondsSinceEpoch(

@@ -20,6 +20,7 @@ import 'package:vnt2_app/src/rust/api/vnt_api.dart';
 import 'package:vnt2_app/widgets/custom_title_bar.dart';
 import 'package:vnt2_app/system_tray_manager.dart';
 import 'package:vnt2_app/ios_vpn_service.dart';
+import 'package:vnt2_app/chat/chat_manager.dart';
 
 /// 主导航框架 - 响应式布局，支持侧边栏和底部导航
 class MainNavigationShell extends StatefulWidget {
@@ -236,6 +237,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             });
             showTopToast(context, '[${config.configName}] 连接成功',
                 isSuccess: true);
+            unawaited(chatManager.syncConnections());
             // 连接成功，更新磁贴和小组件状态
             if (Platform.isAndroid) {
               VntAppCall.updateWidgetAndTile(true);
@@ -247,6 +249,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             // 重连成功（onece 已经是 false，说明之前已经连接过）
             showTopToast(context, '[${config.configName}] 已重新连接到服务器',
                 isSuccess: true);
+            unawaited(chatManager.syncConnections());
           }
         } else if (msg == 'stop') {
           vntManager.remove(config.itemKey);
@@ -315,8 +318,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       if (!mounted) return;
 
       closeDialog(); // 关闭连接中对话框
-      var msg = e.toString();
-      showTopToast(context, '连接失败 $msg', isSuccess: false);
+      showTopToast(context, '连接失败：$e', isSuccess: false);
     }
   }
 

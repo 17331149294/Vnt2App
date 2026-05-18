@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vnt2_app/utils/toast_utils.dart';
@@ -29,6 +30,9 @@ class ChatRoomView extends StatefulWidget {
 class _ChatRoomViewState extends State<ChatRoomView> {
   final TextEditingController _textController = TextEditingController();
   int _lastStatusVersion = -1;
+  bool _showEmojiPicker = false;
+
+  bool get _isRefreshingDiscovery => chatManager.isRefreshingDiscovery;
 
   String? get _scopedNetworkKey {
     final value = widget.scopedNetworkKey?.trim() ?? '';
@@ -76,11 +80,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     unawaited(chatManager.init());
     if (widget.section == ChatRoomSection.channels) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(
-          chatManager.openPreferredChannelConversation(
-            scopedNetworkKey: _scopedNetworkKey,
-          ),
-        );
+        unawaited(_ensureInitialChannelSelection());
       });
     }
   }
@@ -94,12 +94,33 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         if (!mounted || widget.section != ChatRoomSection.channels) {
           return;
         }
-        unawaited(
-          chatManager.openPreferredChannelConversation(
-            scopedNetworkKey: _scopedNetworkKey,
-          ),
-        );
+        unawaited(_ensureInitialChannelSelection());
       });
+    }
+  }
+
+  Future<void> _refreshDiscovery() async {
+    if (_isRefreshingDiscovery) {
+      return;
+    }
+    await chatManager.debugRefreshNow();
+  }
+
+  Future<void> _ensureInitialChannelSelection() async {
+    await chatManager.init();
+    await chatManager.syncConnections();
+    if (!mounted || widget.section != ChatRoomSection.channels) {
+      return;
+    }
+    final conversation = chatManager.selectedConversation;
+    if (conversation == null ||
+        !chatMatchesNetworkScope(
+          conversation.networkKey,
+          _scopedNetworkKey,
+        )) {
+      await chatManager.openPreferredChannelConversation(
+        scopedNetworkKey: _scopedNetworkKey,
+      );
     }
   }
 
@@ -171,10 +192,17 @@ class _ChatRoomViewState extends State<ChatRoomView> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      showTopToast(context, message, isSuccess: !_isErrorStatusMessage(message));
     });
+  }
+
+  bool _isErrorStatusMessage(String message) {
+    return message.contains('失败') ||
+        message.contains('错误') ||
+        message.contains('异常') ||
+        message.contains('超时') ||
+        message.contains('不可用') ||
+        message.contains('无法');
   }
 
   KeyEventResult _handleComposerKey(FocusNode node, KeyEvent event) {
@@ -201,20 +229,14 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     VoidCallback? onEntryActivated,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.of(context).size.width < 600;
     final sectionCards = section == ChatRoomSection.channels
         ? [
             _buildSectionCard(
               context: context,
-              title: '默认大厅',
-              count: _lobbyConversations.length,
-              child: _buildLobbyConversationList(
-                onEntryActivated: onEntryActivated,
-              ),
-            ),
-            _buildSectionCard(
-              context: context,
-              title: '房间',
-              count: _roomConversations.length,
+              compact: compact,
+              title: '大厅和房间',
+              count: _lobbyConversations.length + _roomConversations.length,
               child: _buildRoomConversationList(
                 onEntryActivated: onEntryActivated,
               ),
@@ -223,6 +245,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         : [
             _buildSectionCard(
               context: context,
+              compact: compact,
               title: '私信会话',
               count: _directConversations.length,
               child: _buildConversationList(
@@ -234,6 +257,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             ),
             _buildSectionCard(
               context: context,
+              compact: compact,
               title: '在线成员',
               count: _onlinePeers.length,
               child: _buildOnlinePeerList(
@@ -244,24 +268,35 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     return Container(
       color: colorScheme.surface,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+        padding: EdgeInsets.fromLTRB(
+          compact ? 8 : 16,
+          compact ? 8 : 14,
+          compact ? 8 : 16,
+          compact ? 12 : 20,
+        ),
         children: [
-          _buildDebugToolsCard(context),
-          const SizedBox(height: 14),
-          _buildResponsiveCardGrid(sectionCards),
+          _buildDebugToolsCard(context, compact: compact),
+          SizedBox(height: compact ? 8 : 14),
+          _buildResponsiveCardGrid(
+            sectionCards,
+            compact: compact,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildResponsiveCardGrid(List<Widget> children) {
+  Widget _buildResponsiveCardGrid(
+    List<Widget> children, {
+    bool compact = false,
+  }) {
     if (children.isEmpty) {
       return const SizedBox.shrink();
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        const spacing = 14.0;
-        const minCardWidth = 300.0;
+        final spacing = compact ? 8.0 : 14.0;
+        final minCardWidth = compact ? 260.0 : 300.0;
         var columns =
             ((constraints.maxWidth + spacing) / (minCardWidth + spacing))
                 .floor();
@@ -288,60 +323,103 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     );
   }
 
-  Widget _buildDebugToolsCard(BuildContext context) {
+  Widget _buildDebugToolsCard(BuildContext context, {bool compact = false}) {
     final colorScheme = Theme.of(context).colorScheme;
+    final outlinedButtonStyle = OutlinedButton.styleFrom(
+      backgroundColor: colorScheme.surface.withOpacity(0.82),
+      disabledBackgroundColor: colorScheme.surface.withOpacity(0.46),
+      side: BorderSide(color: colorScheme.primary.withOpacity(0.18)),
+    );
+    final tonalButtonStyle = FilledButton.styleFrom(
+      backgroundColor: colorScheme.surface.withOpacity(0.82),
+      disabledBackgroundColor: colorScheme.surface.withOpacity(0.46),
+      foregroundColor: colorScheme.primary,
+    );
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withOpacity(0.38),
-        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primary.withOpacity(0.14),
+            colorScheme.secondaryContainer.withOpacity(0.45),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(compact ? 10 : 14),
         border: Border.all(color: colorScheme.primary.withOpacity(0.12)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.all(compact ? 10 : 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Container(
-                  width: 38,
-                  height: 38,
+                  width: compact ? 32 : 38,
+                  height: compact ? 32 : 38,
                   decoration: BoxDecoration(
                     color: colorScheme.primary.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(compact ? 8 : 10),
                   ),
                   child: Icon(
                     Icons.hub_outlined,
                     color: colorScheme.primary,
+                    size: compact ? 19 : null,
                   ),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: compact ? 8 : 10),
                 Expanded(
                   child: Text(
                     widget.section == ChatRoomSection.channels ? '聊天室' : '私信',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w800,
+                          fontSize: compact ? 15 : null,
                         ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: compact ? 5 : 10),
             Text(
               '网络 ${_connectedNetworkKeys.length} 个 · 在线设备 ${_onlinePeers.length} 个',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 14),
+            SizedBox(height: compact ? 8 : 14),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: compact ? 6 : 8,
+              runSpacing: compact ? 6 : 8,
               children: [
                 OutlinedButton.icon(
-                  onPressed: () => chatManager.debugRefreshNow(),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('刷新发现'),
+                  style: compact
+                      ? outlinedButtonStyle.merge(_compactButtonStyle(context))
+                      : outlinedButtonStyle,
+                  onPressed:
+                      _isRefreshingDiscovery ? null : _refreshDiscovery,
+                  icon: _isRefreshingDiscovery
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  label: Text(_isRefreshingDiscovery ? '刷新中' : '刷新发现'),
                 ),
+                if (widget.section == ChatRoomSection.channels)
+                  OutlinedButton.icon(
+                    style: compact
+                        ? outlinedButtonStyle.merge(_compactButtonStyle(context))
+                        : outlinedButtonStyle,
+                    onPressed: _connectedNetworkKeys.isEmpty
+                        ? null
+                        : _showCreateChannelDialog,
+                    icon: const Icon(Icons.add),
+                    label: const Text('创建房间'),
+                  ),
                 OutlinedButton.icon(
+                  style: compact
+                      ? outlinedButtonStyle.merge(_compactButtonStyle(context))
+                      : outlinedButtonStyle,
                   onPressed: chatManager.isBuildingDiagnostics
                       ? null
                       : _showDiagnosticsDialog,
@@ -356,6 +434,9 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                       Text(chatManager.isBuildingDiagnostics ? '加载中' : '查看诊断'),
                 ),
                 FilledButton.tonalIcon(
+                  style: compact
+                      ? tonalButtonStyle.merge(_compactFilledButtonStyle(context))
+                      : tonalButtonStyle,
                   onPressed: _confirmClearChatData,
                   icon: const Icon(Icons.cleaning_services_outlined),
                   label: const Text('清空聊天数据'),
@@ -370,6 +451,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
 
   Widget _buildSectionCard({
     required BuildContext context,
+    bool compact = false,
     required String title,
     required int count,
     required Widget child,
@@ -379,11 +461,11 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest.withOpacity(0.34),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(compact ? 10 : 14),
         border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.45)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(compact ? 10 : 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -393,6 +475,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
+                        fontSize: compact ? 15 : null,
                       ),
                 ),
                 const SizedBox(width: 8),
@@ -415,9 +498,9 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                 if (trailing != null) trailing,
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: compact ? 8 : 12),
             SizedBox(
-              height: 280,
+              height: compact ? 225 : 280,
               child: SingleChildScrollView(
                 child: child,
               ),
@@ -425,6 +508,24 @@ class _ChatRoomViewState extends State<ChatRoomView> {
           ],
         ),
       ),
+    );
+  }
+
+  ButtonStyle _compactButtonStyle(BuildContext context) {
+    return OutlinedButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      textStyle: Theme.of(context).textTheme.labelMedium,
+    );
+  }
+
+  ButtonStyle _compactFilledButtonStyle(BuildContext context) {
+    return FilledButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      textStyle: Theme.of(context).textTheme.labelMedium,
     );
   }
 
@@ -473,6 +574,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             : '默认公共大厅';
         return _buildSelectableTile(
           selected: selected,
+          accentColor: Theme.of(context).colorScheme.primary,
           onTap: () {
             onEntryActivated?.call();
             chatManager.selectConversation(conversation.conversationId);
@@ -488,29 +590,44 @@ class _ChatRoomViewState extends State<ChatRoomView> {
   }
 
   Widget _buildRoomConversationList({VoidCallback? onEntryActivated}) {
-    if (_roomConversations.isEmpty) {
-      return _buildEmptyHint('还没有房间会话', '请先从大厅创建房间或加入房间');
+    final conversations = [
+      ..._lobbyConversations,
+      ..._roomConversations,
+    ];
+    if (conversations.isEmpty) {
+      return _buildEmptyHint('大厅尚未就绪', '连接组网后会自动创建大厅');
     }
     return Column(
-      children: _roomConversations.map((conversation) {
+      children: conversations.map((conversation) {
         final selected =
             chatManager.selectedConversationId == conversation.conversationId;
+        final isLobby = ChatManager.isLobbyChannelId(conversation.channelId);
         final channel = conversation.channelId == null
             ? null
             : _scopedChannels
                 .where((item) => item.channelId == conversation.channelId)
                 .cast<ChatChannel?>()
                 .firstOrNull;
-        final roomTypeLabel = channel?.isPrivate == true ? '私密房间' : '公开房间';
+        final roomTypeLabel = isLobby
+            ? '默认公共大厅'
+            : (channel?.isPrivate == true ? '私密房间' : '公开房间');
+        final passwordLabel = channel?.passwordHash.isNotEmpty == true &&
+                channel?.joined != true
+            ? ' · 需密码'
+            : '';
         final subtitle = _hasMultipleNetworks
-            ? '${conversation.networkKey} · $roomTypeLabel'
-            : roomTypeLabel;
+            ? '${conversation.networkKey} · $roomTypeLabel$passwordLabel'
+            : '$roomTypeLabel$passwordLabel';
         return _buildSelectableTile(
           selected: selected,
-          accentColor: channel?.isPrivate == true
-              ? Theme.of(context).colorScheme.tertiary
-              : Theme.of(context).colorScheme.secondary,
-          tags: [_buildRoomTypeTag(channel?.isPrivate == true)],
+          accentColor: isLobby
+              ? Theme.of(context).colorScheme.primary
+              : (channel?.isPrivate == true
+                  ? Theme.of(context).colorScheme.tertiary
+                  : Theme.of(context).colorScheme.secondary),
+          tags: isLobby
+              ? const []
+              : [_buildRoomTypeTag(channel?.isPrivate == true)],
           onTap: () {
             onEntryActivated?.call();
             chatManager.selectConversation(conversation.conversationId);
@@ -542,12 +659,16 @@ class _ChatRoomViewState extends State<ChatRoomView> {
           onTap: () => chatManager.selectConversation(conversationId),
           title: channel.name,
           subtitle: channel.isPrivate
-              ? (channel.joined ? '私密频道 · 已加入' : '私密频道 · 待加入')
-              : (channel.joined ? '公开频道 · 已加入' : '公开频道'),
+              ? (channel.joined
+                  ? '私密频道 · 已加入'
+                  : '私密频道 · 待加入${channel.passwordHash.isNotEmpty ? ' · 需密码' : ''}')
+              : (channel.joined
+                  ? '公开频道 · 已加入'
+                  : '公开频道${channel.passwordHash.isNotEmpty ? ' · 需密码' : ''}'),
           trailing: PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'join') {
-                chatManager.joinChannel(channel);
+                unawaited(_joinChannel(channel));
               } else if (value == 'leave') {
                 chatManager.leaveChannel(channel);
               } else if (value == 'voice') {
@@ -756,6 +877,53 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     }
   }
 
+  Future<void> _joinChannel(ChatChannel channel) async {
+    if (!chatManager.channelRequiresPassword(channel)) {
+      await chatManager.joinChannel(channel);
+      return;
+    }
+    final password = await _showChannelPasswordDialog(channel);
+    if (password == null) {
+      return;
+    }
+    await chatManager.joinChannel(channel, password: password);
+  }
+
+  Future<String?> _showChannelPasswordDialog(ChatChannel channel) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('加入 ${channel.name}'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: '频道密码',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) =>
+                Navigator.of(context).pop(controller.text),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              child: const Text('加入'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    return result;
+  }
+
   Widget _buildSelectableTile({
     required bool selected,
     required VoidCallback onTap,
@@ -767,15 +935,16 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     void Function(TapDownDetails details)? onSecondaryTapDown,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.of(context).size.width < 600;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: EdgeInsets.only(bottom: compact ? 5 : 8),
       decoration: BoxDecoration(
         color: selected
             ? colorScheme.primary.withOpacity(0.10)
             : (accentColor?.withOpacity(0.08) ??
                 colorScheme.surface.withOpacity(0.42)),
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: BorderRadius.circular(compact ? 9 : 11),
         border: Border.all(
           color: selected
               ? colorScheme.primary.withOpacity(0.24)
@@ -788,10 +957,15 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         onSecondaryTapDown: onSecondaryTapDown,
         child: ListTile(
           dense: true,
+          minVerticalPadding: compact ? 4 : null,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              EdgeInsets.symmetric(
+            horizontal: compact ? 10 : 12,
+            vertical: compact ? 0 : 4,
+          ),
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+              RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(compact ? 9 : 11)),
           onTap: onTap,
           title: Row(
             children: [
@@ -802,6 +976,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                    fontSize: compact ? 14 : null,
                   ),
                 ),
               ),
@@ -815,6 +990,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             subtitle,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            style: compact ? Theme.of(context).textTheme.bodySmall : null,
           ),
           trailing: trailing,
         ),
@@ -881,15 +1057,35 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (sheetContext) {
+        final colorScheme = Theme.of(sheetContext).colorScheme;
         final height = MediaQuery.of(sheetContext).size.height * 0.82;
-        return SafeArea(
-          child: SizedBox(
-            height: height,
-            child: _buildSidebar(
-              sheetContext,
-              widget.section,
-              onEntryActivated: () => Navigator.of(sheetContext).pop(),
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: SafeArea(
+            child: Container(
+              height: height,
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: colorScheme.outlineVariant.withOpacity(0.45),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 28,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: _buildSidebar(
+                sheetContext,
+                widget.section,
+                onEntryActivated: () => Navigator.of(sheetContext).pop(),
+              ),
             ),
           ),
         );
@@ -905,13 +1101,9 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     final section = widget.section;
     if (section == ChatRoomSection.channels &&
         _channelConversations.isNotEmpty &&
-        !_conversationMatchesCurrentSection(conversation)) {
+        conversation == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(
-          chatManager.openPreferredChannelConversation(
-            scopedNetworkKey: _scopedNetworkKey,
-          ),
-        );
+        unawaited(_ensureInitialChannelSelection());
       });
     }
     if (!_conversationMatchesCurrentSection(conversation)) {
@@ -1262,12 +1454,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: bubbleColor,
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(isOutgoing ? 16 : 4),
-                      topRight: Radius.circular(isOutgoing ? 4 : 16),
-                      bottomLeft: const Radius.circular(16),
-                      bottomRight: const Radius.circular(16),
-                    ),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: bubbleBorderColor),
                   ),
                   child: _buildMessageContent(message),
@@ -1312,6 +1499,57 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             ),
           ],
         );
+        final senderName = isOutgoing
+            ? '我'
+            : (peer?.displayName ?? message.senderPeerId);
+        final nameWidget = Tooltip(
+          message: senderInfo,
+          waitDuration: const Duration(milliseconds: 350),
+          child: GestureDetector(
+            onTap: () => _showInfoSnackBar(senderInfo),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 96),
+              child: Text(
+                senderName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+          ),
+        );
+        final messageRow = Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!isOutgoing) ...[
+              nameWidget,
+              const SizedBox(width: 8),
+            ],
+            if (failed) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 6, right: 6),
+                child: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: '发送失败，点击重试',
+                  onPressed: () => _showRetryFailedMessage(message),
+                  icon: const Icon(
+                    Icons.error,
+                    color: Colors.red,
+                  ),
+                ),
+              ),
+            ],
+            Flexible(child: bubble),
+            if (isOutgoing) ...[
+              const SizedBox(width: 8),
+              nameWidget,
+            ],
+          ],
+        );
         return Align(
           alignment: isOutgoing ? Alignment.centerRight : Alignment.centerLeft,
           child: ConstrainedBox(
@@ -1323,47 +1561,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                     ? CrossAxisAlignment.end
                     : CrossAxisAlignment.start,
                 children: [
-                  Tooltip(
-                    message: senderInfo,
-                    waitDuration: const Duration(milliseconds: 350),
-                    child: GestureDetector(
-                      onTap: () => _showInfoSnackBar(senderInfo),
-                      child: Text(
-                        isOutgoing
-                            ? '我'
-                            : (peer?.displayName ?? message.senderPeerId),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (failed) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6, right: 6),
-                          child: IconButton(
-                            visualDensity: VisualDensity.compact,
-                            tooltip: '发送失败，点击重试',
-                            onPressed: () => _showRetryFailedMessage(message),
-                            icon: const Icon(
-                              Icons.error,
-                              color: Colors.red,
-                            ),
-                          ),
-                        ),
-                      ],
-                      Flexible(child: bubble),
-                    ],
-                  ),
+                  messageRow,
                   const SizedBox(height: 4),
                   statusTime,
                 ],
@@ -1391,25 +1589,18 @@ class _ChatRoomViewState extends State<ChatRoomView> {
   }
 
   Future<void> _showRetryFailedMessage(ChatMessage message) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          message.kind == ChatMessageKind.text ? '消息发送失败' : '附件消息发送失败',
-        ),
-        action: SnackBarAction(
-          label: message.kind == ChatMessageKind.text ? '重试' : '重新选择',
-          onPressed: () {
-            if (message.kind == ChatMessageKind.text) {
-              unawaited(chatManager.retryMessage(message.messageId));
-            } else if (message.kind == ChatMessageKind.image) {
-              unawaited(chatManager.sendPickedImage());
-            } else {
-              unawaited(chatManager.sendPickedFile());
-            }
-          },
-        ),
-      ),
+    showTopToast(
+      context,
+      message.kind == ChatMessageKind.text ? '正在重试发送消息' : '请重新选择附件发送',
+      isSuccess: message.kind == ChatMessageKind.text,
     );
+    if (message.kind == ChatMessageKind.text) {
+      unawaited(chatManager.retryMessage(message.messageId));
+    } else if (message.kind == ChatMessageKind.image) {
+      unawaited(chatManager.sendPickedImage());
+    } else {
+      unawaited(chatManager.sendPickedFile());
+    }
   }
 
   Future<void> _showMessageActions(
@@ -1731,6 +1922,17 @@ class _ChatRoomViewState extends State<ChatRoomView> {
               final compact = constraints.maxWidth < 560;
               final tools = <Widget>[
                 IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _showEmojiPicker = !_showEmojiPicker;
+                    });
+                  },
+                  tooltip: '表情',
+                  icon: Icon(_showEmojiPicker
+                      ? Icons.keyboard_alt_outlined
+                      : Icons.emoji_emotions_outlined),
+                ),
+                IconButton(
                   onPressed: chatManager.isSendingAttachment
                       ? null
                       : chatManager.sendPickedImage,
@@ -1798,40 +2000,48 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                   onSubmitted: (_) => _sendText(),
                 ),
               );
-              if (compact) {
-                return Column(
-                  children: [
-                    composer,
-                    const SizedBox(height: 8),
-                    Row(
+              final inputRow = compact
+                  ? Column(
                       children: [
-                        Expanded(
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(children: tools),
-                          ),
+                        composer,
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(children: tools),
+                              ),
+                            ),
+                            FilledButton.icon(
+                              onPressed: _sendText,
+                              icon: const Icon(Icons.send),
+                              label: const Text('发送'),
+                            ),
+                          ],
                         ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(child: composer),
+                        const SizedBox(width: 8),
+                        ...tools,
+                        const SizedBox(width: 4),
                         FilledButton.icon(
                           onPressed: _sendText,
                           icon: const Icon(Icons.send),
                           label: const Text('发送'),
                         ),
                       ],
-                    ),
-                  ],
-                );
-              }
-              return Row(
+                    );
+              return Column(
                 children: [
-                  Expanded(child: composer),
-                  const SizedBox(width: 8),
-                  ...tools,
-                  const SizedBox(width: 4),
-                  FilledButton.icon(
-                    onPressed: _sendText,
-                    icon: const Icon(Icons.send),
-                    label: const Text('发送'),
-                  ),
+                  inputRow,
+                  if (_showEmojiPicker) ...[
+                    const SizedBox(height: 8),
+                    _buildEmojiPicker(),
+                  ],
                 ],
               );
             },
@@ -1844,7 +2054,30 @@ class _ChatRoomViewState extends State<ChatRoomView> {
   Future<void> _sendText() async {
     final text = _textController.text;
     _textController.clear();
+    if (_showEmojiPicker) {
+      setState(() {
+        _showEmojiPicker = false;
+      });
+    }
     await chatManager.sendTextMessage(text);
+  }
+
+  Widget _buildEmojiPicker() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: ColoredBox(
+        color: colorScheme.surface,
+        child: EmojiPicker(
+          textEditingController: _textController,
+          onEmojiSelected: (category, emoji) {},
+          config: const Config(
+            height: 260,
+            checkPlatformCompatibility: true,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildEmptyHint(String title, String subtitle) {
@@ -1879,9 +2112,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('当前没有可用的已连接网络')),
-      );
+      showTopToast(context, '当前没有可用的已连接网络', isSuccess: false);
       return;
     }
     String? selectedNetworkKey = chatManager.preferredNetworkKey(
@@ -1891,6 +2122,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     bool isPrivate = false;
     final selectedIds = <String>{};
     final nameController = TextEditingController();
+    final passwordController = TextEditingController();
     final created = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -1903,7 +2135,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
             final dialogWidth =
                 screenWidth < 560 ? screenWidth - 64 : 420.0;
             return AlertDialog(
-              title: const Text('创建频道'),
+              title: const Text('创建房间'),
               content: SizedBox(
                 width: dialogWidth,
                 child: Column(
@@ -1936,7 +2168,16 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                     TextField(
                       controller: nameController,
                       decoration: const InputDecoration(
-                        labelText: '频道名称',
+                        labelText: '房间名称',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: '房间密码（可选）',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -1944,11 +2185,11 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       value: isPrivate,
-                      title: const Text('私密频道'),
+                      title: const Text('私密房间'),
                       subtitle: Text(
                         candidates.isEmpty
-                            ? '暂无在线成员，也可以先创建本地私密频道'
-                            : '私密频道只邀请指定成员',
+                            ? '暂无在线成员，也可以先创建本地私密房间'
+                            : '私密房间只邀请指定成员',
                       ),
                       onChanged: (value) => setState(() => isPrivate = value),
                     ),
@@ -1998,10 +2239,13 @@ class _ChatRoomViewState extends State<ChatRoomView> {
     );
     if (created != true) {
       nameController.dispose();
+      passwordController.dispose();
       return;
     }
     final trimmed = nameController.text.trim();
+    final password = passwordController.text;
     nameController.dispose();
+    passwordController.dispose();
     if (trimmed.isEmpty) {
       return;
     }
@@ -2018,14 +2262,17 @@ class _ChatRoomViewState extends State<ChatRoomView> {
         networkKey: networkKey,
         name: trimmed,
         isPrivate: isPrivate,
+        password: password,
         invitedPeers: invited,
       );
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ChatManager.roomCreateFailureMessage(error))),
+      showTopToast(
+        context,
+        ChatManager.roomCreateFailureMessage(error),
+        isSuccess: false,
       );
     }
   }
@@ -2072,15 +2319,12 @@ class _ChatRoomViewState extends State<ChatRoomView> {
               onPressed: () async {
                 final report = await reportFuture;
                 final navigator = Navigator.of(context);
-                final messenger = ScaffoldMessenger.of(this.context);
                 await Clipboard.setData(ClipboardData(text: report));
                 if (!mounted) {
                   return;
                 }
                 navigator.pop();
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('诊断信息已复制')),
-                );
+                showTopToast(this.context, '诊断信息已复制', isSuccess: true);
               },
               child: const Text('复制'),
             ),
@@ -2120,9 +2364,7 @@ class _ChatRoomViewState extends State<ChatRoomView> {
                 if (!mounted) {
                   return;
                 }
-                ScaffoldMessenger.of(this.context).showSnackBar(
-                  const SnackBar(content: Text('日志已复制')),
-                );
+                showTopToast(this.context, '日志已复制', isSuccess: true);
               },
               child: const Text('复制'),
             ),

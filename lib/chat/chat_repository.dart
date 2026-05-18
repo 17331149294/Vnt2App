@@ -32,9 +32,12 @@ class ChatRepository {
     _dbPath = dbPath;
     _database = await _openChatDatabase(
       dbPath,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await _createSchema(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        await _upgradeSchema(db, oldVersion, newVersion);
       },
     );
   }
@@ -44,12 +47,18 @@ class ChatRepository {
     required int version,
     required Future<void> Function(ffi_sqflite.Database db, int version)
         onCreate,
+    Future<void> Function(
+      ffi_sqflite.Database db,
+      int oldVersion,
+      int newVersion,
+    )? onUpgrade,
   }) {
     if (Platform.isAndroid || Platform.isIOS) {
       return mobile_sqflite.openDatabase(
         dbPath,
         version: version,
         onCreate: onCreate,
+        onUpgrade: onUpgrade,
       );
     }
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -58,6 +67,7 @@ class ChatRepository {
         dbPath,
         version: version,
         onCreate: onCreate,
+        onUpgrade: onUpgrade,
       );
     }
     return Future.error(
@@ -174,6 +184,7 @@ class ChatRepository {
         name TEXT NOT NULL,
         owner_peer_id TEXT NOT NULL,
         is_private INTEGER NOT NULL DEFAULT 0,
+        password_hash TEXT NOT NULL DEFAULT '',
         joined INTEGER NOT NULL DEFAULT 0,
         archived INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
@@ -266,6 +277,18 @@ class ChatRepository {
     await db.execute(
       'CREATE INDEX idx_messages_conversation_id ON messages (conversation_id, received_at)',
     );
+  }
+
+  Future<void> _upgradeSchema(
+    ffi_sqflite.Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        "ALTER TABLE channels ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''",
+      );
+    }
   }
 
   Future<Directory> get attachmentsDirectory async {

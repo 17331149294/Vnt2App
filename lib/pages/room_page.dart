@@ -43,15 +43,16 @@ class _RoomPageState extends State<RoomPage>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isWideScreen = MediaQuery.of(context).size.width > 600;
-    final scopedNetworkKey = widget.selectedConfig?.itemKey.trim();
+    final scopedNetworkKey =
+        chatManager.networkScopeForConfig(widget.selectedConfig);
     final hasScopedNetwork =
         scopedNetworkKey != null && scopedNetworkKey.isNotEmpty;
     final hasConnection = hasScopedNetwork
-        ? vntManager.hasConnectionItem(scopedNetworkKey)
+        ? vntManager.hasConnectionItem(widget.selectedConfig?.itemKey ?? '')
         : vntManager.size() > 0;
     final primaryColor = Theme.of(context).primaryColor;
 
-    return Scaffold(
+    final scaffold = Scaffold(
       backgroundColor:
           isDark ? AppTheme.darkBackground : AppTheme.lightBackground,
       body: SafeArea(
@@ -59,7 +60,7 @@ class _RoomPageState extends State<RoomPage>
           children: [
             Padding(
               padding: EdgeInsets.all(
-                isWideScreen ? context.spacingXLarge : context.spacingMedium,
+                isWideScreen ? context.spacingXLarge : context.spacingSmall,
               ),
               child: _buildHeader(isDark, hasConnection),
             ),
@@ -68,7 +69,7 @@ class _RoomPageState extends State<RoomPage>
                 margin: EdgeInsets.symmetric(
                   horizontal: isWideScreen
                       ? context.spacingXLarge
-                      : context.spacingMedium,
+                      : context.spacingSmall,
                 ),
                 child: TabBar(
                   controller: _tabController,
@@ -131,30 +132,71 @@ class _RoomPageState extends State<RoomPage>
         ),
       ),
     );
+    if (!isWideScreen) {
+      return Theme(
+        data: _compactRoomTheme(Theme.of(context)),
+        child: scaffold,
+      );
+    }
+    return scaffold;
+  }
+
+  ThemeData _compactRoomTheme(ThemeData base) {
+    final labelStyle = base.textTheme.labelMedium?.copyWith(fontSize: 12);
+    final iconButtonStyle = IconButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      minimumSize: const Size(34, 34),
+      padding: const EdgeInsets.all(6),
+      iconSize: 20,
+    );
+    final compactButtonStyle = ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const MaterialStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      ),
+      textStyle: MaterialStatePropertyAll(labelStyle),
+      minimumSize: const MaterialStatePropertyAll(Size(0, 34)),
+      iconSize: const MaterialStatePropertyAll(18),
+    );
+    return base.copyWith(
+      textButtonTheme: TextButtonThemeData(style: compactButtonStyle),
+      outlinedButtonTheme: OutlinedButtonThemeData(style: compactButtonStyle),
+      filledButtonTheme: FilledButtonThemeData(style: compactButtonStyle),
+      elevatedButtonTheme: ElevatedButtonThemeData(style: compactButtonStyle),
+      iconButtonTheme: IconButtonThemeData(style: iconButtonStyle),
+      popupMenuTheme: base.popupMenuTheme.copyWith(
+        textStyle: base.textTheme.bodyMedium?.copyWith(fontSize: 13),
+      ),
+    );
   }
 
   Widget _buildHeader(bool isDark, bool hasConnection) {
     final primaryColor = Theme.of(context).primaryColor;
+    final compact = MediaQuery.of(context).size.width <= 600;
     return Row(
       children: [
         Container(
-          width: context.iconXLarge,
-          height: context.iconXLarge,
+          width: compact ? context.iconLarge : context.iconXLarge,
+          height: compact ? context.iconLarge : context.iconXLarge,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [primaryColor, primaryColor.withOpacity(0.7)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(context.cardRadius),
+            borderRadius: BorderRadius.circular(
+              compact ? context.cardRadius * 0.75 : context.cardRadius,
+            ),
           ),
           child: Icon(
             Icons.forum_outlined,
             color: Colors.white,
-            size: context.iconLarge,
+            size: compact ? context.iconMedium : context.iconLarge,
           ),
         ),
-        SizedBox(width: context.spacingMedium),
+        SizedBox(width: compact ? context.spacingSmall : context.spacingMedium),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -163,24 +205,27 @@ class _RoomPageState extends State<RoomPage>
                 '房间',
                 style: TextStyle(
                   fontSize: context.fontXLarge,
+                  height: compact ? 1.08 : null,
                   fontWeight: FontWeight.w700,
                   color: isDark
                       ? AppTheme.darkTextPrimary
                       : AppTheme.lightTextPrimary,
                 ),
               ),
-              SizedBox(height: context.spacingXXSmall),
-              Text(
-                hasConnection
-                    ? '可在大厅管理房间，在聊天室交流，在私信中一对一沟通'
-                    : '请先连接一个组网配置后再进入大厅、聊天室或私信',
-                style: TextStyle(
-                  fontSize: context.fontBody,
-                  color: isDark
-                      ? AppTheme.darkTextSecondary
-                      : AppTheme.lightTextSecondary,
+              if (!compact) ...[
+                SizedBox(height: context.spacingXXSmall),
+                Text(
+                  hasConnection
+                      ? '可在大厅管理房间，在聊天室交流，在私信中一对一沟通'
+                      : '请先连接一个组网配置后再进入大厅、聊天室或私信',
+                  style: TextStyle(
+                    fontSize: context.fontBody,
+                    color: isDark
+                        ? AppTheme.darkTextSecondary
+                        : AppTheme.lightTextSecondary,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -238,7 +283,7 @@ class _RoomPageState extends State<RoomPage>
   }
 
   Future<void> _openDirectPeer(ChatPeer peer) async {
-    _tabController.animateTo(2);
     await chatManager.openDirectConversation(peer);
+    _tabController.animateTo(2);
   }
 }
