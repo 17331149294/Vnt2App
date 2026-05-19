@@ -363,7 +363,7 @@ async fn start_network(
     task_group: vnt_core::utils::task_control::TaskGroup,
     call: &VntApiCallback,
 ) -> anyhow::Result<(NetworkManager, NetworkAddr)> {
-    let output_routes = core_config.output.clone();
+    let input_routes = core_config.input.clone();
     let mut network_manager = NetworkManager::create_network(Box::new(core_config), task_group)
         .await
         .context("创建 VNT 2.0 网络实例失败")?;
@@ -386,12 +386,12 @@ async fn start_network(
         {
             let virtual_network = Ipv4Net::new(network_addr.ip, network_addr.prefix_len)
                 .context("解析虚拟网络段失败")?;
-            let external_route = output_routes
+            let external_route = input_routes
                 .iter()
-                .map(|route| {
+                .map(|input| {
                     (
-                        route.network().to_string(),
-                        prefix_to_netmask(route.prefix_len()).to_string(),
+                        input.net.network().to_string(),
+                        prefix_to_netmask(input.net.prefix_len()).to_string(),
                     )
                 })
                 .collect();

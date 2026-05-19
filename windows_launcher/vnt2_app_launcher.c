@@ -161,7 +161,6 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prev_instance,
                       LPWSTR command_line, int show_command) {
   (void)instance;
   (void)prev_instance;
-  (void)command_line;
   (void)show_command;
 
   wchar_t exe_path[MAX_PATH];
@@ -198,7 +197,12 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prev_instance,
   }
 
   wchar_t command[MAX_PATH * 2];
-  _snwprintf(command, MAX_PATH * 2, L"\"%ls\"", runner_path);
+  if (command_line != NULL && command_line[0] != L'\0') {
+    _snwprintf(command, MAX_PATH * 2, L"\"%ls\" %ls", runner_path,
+               command_line);
+  } else {
+    _snwprintf(command, MAX_PATH * 2, L"\"%ls\"", runner_path);
+  }
   command[(MAX_PATH * 2) - 1] = L'\0';
 
   STARTUPINFOW si;

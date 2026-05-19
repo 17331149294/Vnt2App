@@ -24,6 +24,14 @@ import 'package:vnt2_app/window_close_behavior.dart';
 
 final SystemTray systemTray = SystemTray();
 final AppWindow appWindow = AppWindow();
+bool startupToTray = false;
+
+bool _isWindowsStartupToTray(List<String> args) {
+  if (!Platform.isWindows) {
+    return false;
+  }
+  return args.any((arg) => arg == '--startup-tray' || arg == '--hidden');
+}
 
 void _writeBootTrace(String message) {
   try {
@@ -91,8 +99,12 @@ String _formatDisplaysForLog(List<Display> displays) {
   }).join(',');
 }
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   _writeBootTrace('main enter');
+  startupToTray = _isWindowsStartupToTray(args);
+  if (startupToTray) {
+    _writeBootTrace('startup mode: tray');
+  }
 
   // macOS 启动时先检查权限，在Flutter初始化之前
   // 避免显示窗口后再提示输入密码
@@ -224,12 +236,12 @@ Future<void> main() async {
       // Windows 和 Linux 保持原有逻辑
       const defaultWindowSize = WindowRestoreGuard.defaultWindowSize;
       const minimumWindowSize = WindowRestoreGuard.minimumWindowSize;
-      const windowOptions = WindowOptions(
+      final windowOptions = WindowOptions(
         size: defaultWindowSize,
         minimumSize: minimumWindowSize,
         center: true,
         backgroundColor: Colors.transparent,
-        skipTaskbar: false,
+        skipTaskbar: startupToTray,
       );
       final dataPersistence = DataPersistence();
       await windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -265,8 +277,12 @@ Future<void> main() async {
         await dataPersistence.saveWindowSize(placement.size);
         await dataPersistence.saveWindowPosition(placement.position);
 
-        await appWindow.show();
-        await windowManager.focus();
+        if (startupToTray) {
+          await windowManager.hide();
+        } else {
+          await appWindow.show();
+          await windowManager.focus();
+        }
 
         _writeBootTrace(
           'window restore decision=${placement.decision.name} '
@@ -769,7 +785,10 @@ class _MainAppState extends State<MainApp> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    return MainNavigationShell(onThemeChanged: _onThemeChanged);
+    return MainNavigationShell(
+      onThemeChanged: _onThemeChanged,
+      startupToTray: startupToTray,
+    );
   }
 }
 
@@ -809,9 +828,13 @@ Future<void> initSystemTray() async {
   // 注册事件处理器
   systemTray.registerSystemTrayEventHandler((eventName) {
     if (eventName == kSystemTrayEventClick) {
-      Platform.isWindows ? windowManager.show() : systemTray.popUpContextMenu();
+      Platform.isWindows
+          ? SystemTrayManager().showMainWindow()
+          : systemTray.popUpContextMenu();
     } else if (eventName == kSystemTrayEventRightClick) {
-      Platform.isWindows ? systemTray.popUpContextMenu() : windowManager.show();
+      Platform.isWindows
+          ? systemTray.popUpContextMenu()
+          : SystemTrayManager().showMainWindow();
     }
   });
 }

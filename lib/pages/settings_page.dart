@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:vnt2_app/theme/app_theme.dart';
 import 'package:vnt2_app/theme/theme_provider.dart';
@@ -39,9 +40,13 @@ class _SettingsPageState extends State<SettingsPage> {
 
   bool _autoStart = false;
   bool _autoConnect = false;
+  bool _autoStartBusy = false;
+  bool _taskSchedulerBusy = false;
   WindowCloseBehavior _closeBehavior = WindowCloseBehavior.ask;
   final List<(String, String)> _configNames = [];
   String _defaultKey = '';
+  static const String _windowsStartupTaskName = 'VNTAppStartup';
+  static const String _windowsStartupTrayArg = '--startup-tray';
 
   @override
   void initState() {
@@ -91,87 +96,200 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _setStartupWithAdmin(bool enable) async {
-    if (!Platform.isWindows) {
-      return;
+  String _windowsStartupExecutablePath() {
+    final resolved = Platform.resolvedExecutable;
+    const runnerSuffix = '_runner.exe';
+    if (resolved.toLowerCase().endsWith(runnerSuffix)) {
+      final launcherPath =
+          '${resolved.substring(0, resolved.length - runnerSuffix.length)}.exe';
+      if (File(launcherPath).existsSync()) {
+        return launcherPath;
+      }
     }
-    final String executablePath = Platform.resolvedExecutable;
-    const String taskName = "VNTAppStartup";
+    return resolved;
+  }
+
+  Future<ProcessResult> _runWindowsProcess(
+    String executable,
+    List<String> args, {
+    Duration timeout = const Duration(seconds: 20),
+    bool runInShell = false,
+  }) async {
+    final process = await Process.start(
+      executable,
+      args,
+      runInShell: runInShell,
+    );
+    final stdoutText = process.stdout.transform(systemEncoding.decoder).join();
+    final stderrText = process.stderr.transform(systemEncoding.decoder).join();
+    final exitCode = await process.exitCode.timeout(
+      timeout,
+      onTimeout: () {
+        process.kill();
+        throw TimeoutException('$executable 执行超时');
+      },
+    );
+    return ProcessResult(
+      process.pid,
+      exitCode,
+      await stdoutText,
+      await stderrText,
+    );
+  }
+
+  Future<bool> _windowsStartupTaskExists() async {
+    final result = await _runWindowsProcess(
+      'SCHTASKS.EXE',
+      ['/QUERY', '/TN', _windowsStartupTaskName],
+      timeout: const Duration(seconds: 10),
+    );
+    return result.exitCode == 0;
+  }
+
+  Future<bool> _createWindowsStartupTask({required bool highest}) async {
+    final executablePath = _windowsStartupExecutablePath();
+    final taskRun = '"$executablePath" $_windowsStartupTrayArg';
+    final args = <String>[
+      '/CREATE',
+      '/F',
+      '/TN',
+      _windowsStartupTaskName,
+      '/TR',
+      taskRun,
+      '/SC',
+      'ONLOGON',
+    ];
+
+    if (highest) {
+      args.addAll(['/RL', 'HIGHEST']);
+    }
+
+    final result = await _runWindowsProcess('SCHTASKS.EXE', args);
+    if (result.exitCode != 0) {
+      debugPrint(
+        '创建开机自启任务失败 highest=$highest: ${result.stderr}${result.stdout}',
+      );
+      return false;
+    }
+    return true;
+  }
+
+  Future<bool> _setStartupWithAdmin(bool enable) async {
+    if (!Platform.isWindows) {
+      return true;
+    }
 
     try {
-      final String username = Platform.environment['USERNAME'] ?? 'SYSTEM';
-
       if (enable) {
-        List<String> args = [
-          '/CREATE',
-          '/F',
-          '/TN',
-          taskName,
-          '/TR',
-          executablePath,
-          '/SC',
-          'ONLOGON',
-          '/RL',
-          'HIGHEST',
-          '/IT',
-          '/RU',
-          username,
-        ];
-
-        final result =
-            await Process.run('SCHTASKS.EXE', args, runInShell: true);
-
-        if (result.exitCode == 0) {
-          debugPrint("Scheduled task created successfully.");
-        } else {
-          debugPrint("Error creating scheduled task: ${result.stderr}");
+        final elevatedCreated = await _createWindowsStartupTask(highest: true);
+        if (elevatedCreated) {
+          debugPrint('开机自启任务已创建：最高权限，托盘启动');
+          return true;
         }
-        await _modifyTaskSettings();
-      } else {
-        List<String> args = [
-          '/DELETE',
-          '/TN',
-          taskName,
-          '/F',
-        ];
 
-        final result =
-            await Process.run('SCHTASKS.EXE', args, runInShell: true);
-
-        if (result.exitCode == 0) {
-          debugPrint("Scheduled task deleted successfully.");
-        } else {
-          debugPrint("Error deleting scheduled task: ${result.stderr}");
+        final normalCreated = await _createWindowsStartupTask(highest: false);
+        if (normalCreated) {
+          debugPrint('开机自启任务已创建：普通权限，托盘启动');
+          return true;
         }
+        return false;
       }
+
+      final result = await _runWindowsProcess(
+        'SCHTASKS.EXE',
+        ['/DELETE', '/TN', _windowsStartupTaskName, '/F'],
+      );
+      if (result.exitCode == 0) {
+        debugPrint('开机自启任务已删除');
+        return true;
+      }
+
+      final stillExists = await _windowsStartupTaskExists();
+      if (!stillExists) {
+        debugPrint('开机自启任务不存在，按关闭成功处理');
+        return true;
+      }
+
+      debugPrint('删除开机自启任务失败: ${result.stderr}${result.stdout}');
+      return false;
     } catch (e) {
       debugPrint('Exception in setting up startup: $e');
+      return false;
     }
   }
 
-  Future<void> _modifyTaskSettings() async {
-    String psScript =
-        r'$task = Get-ScheduledTask -TaskName "VNTAppStartup"; $task.Settings.DisallowStartIfOnBatteries = $false; Set-ScheduledTask -InputObject $task';
+  Future<void> _handleAutoStartChanged(bool value) async {
+    if (_autoStartBusy) {
+      return;
+    }
+    setState(() {
+      _autoStartBusy = true;
+    });
 
+    var success = false;
     try {
-      var result = await Process.run('powershell', ['-Command', psScript],
-          runInShell: true);
-
-      if (result.exitCode == 0) {
-        debugPrint('Task settings modified successfully');
-      } else {
-        debugPrint('Error modifying task settings: ${result.stderr}');
+      success = await _setStartupWithAdmin(value);
+      if (success) {
+        await _dataPersistence.saveAutoStart(value);
       }
-    } on ProcessException catch (e) {
-      debugPrint('Failed to run PowerShell script: $e');
+    } catch (e) {
+      debugPrint('保存开机自启设置失败: $e');
+      success = false;
     }
+
+    if (!mounted) return;
+
+    if (success) {
+      setState(() {
+        _autoStart = value;
+        _autoStartBusy = false;
+      });
+      showTopToast(
+        context,
+        value ? '开机自启已启用' : '开机自启已关闭',
+        isSuccess: true,
+      );
+      return;
+    }
+
+    setState(() {
+      _autoStartBusy = false;
+    });
+    showTopToast(
+      context,
+      value ? '开机自启启用失败，已保持原设置' : '开机自启关闭失败，已保持原设置',
+      isSuccess: false,
+    );
   }
 
-  void _openTaskScheduler() async {
+  Future<void> _openTaskScheduler() async {
+    if (_taskSchedulerBusy) {
+      return;
+    }
+    setState(() {
+      _taskSchedulerBusy = true;
+    });
+
     try {
-      await Process.run('taskschd.msc', [], runInShell: true);
+      await Process.start('control.exe', ['schedtasks'])
+          .timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint('Failed to open Task Scheduler: $e');
+      try {
+        await Process.start('taskschd.msc', [], runInShell: true)
+            .timeout(const Duration(seconds: 10));
+      } catch (fallbackError) {
+        debugPrint('Fallback open Task Scheduler failed: $fallbackError');
+        if (mounted) {
+          showTopToast(context, '打开任务计划程序失败', isSuccess: false);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _taskSchedulerBusy = false;
+        });
+      }
     }
   }
 
@@ -685,24 +803,38 @@ class _SettingsPageState extends State<SettingsPage> {
                       children: [
                         Switch(
                           value: _autoStart,
-                          onChanged: (value) async {
-                            await _setStartupWithAdmin(value);
-                            await _dataPersistence.saveAutoStart(value);
-                            setState(() {
-                              _autoStart = value;
-                            });
-                          },
+                          onChanged:
+                              _autoStartBusy ? null : _handleAutoStartChanged,
                           activeColor: Theme.of(context).primaryColor,
                         ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.edit_calendar,
-                            size: context.iconSmall,
-                            color: isDark
-                                ? AppTheme.darkTextSecondary
-                                : AppTheme.lightTextSecondary,
+                        if (_autoStartBusy)
+                          SizedBox(
+                            width: context.iconSmall,
+                            height: context.iconSmall,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Theme.of(context).primaryColor,
+                            ),
                           ),
-                          onPressed: _openTaskScheduler,
+                        IconButton(
+                          icon: _taskSchedulerBusy
+                              ? SizedBox(
+                                  width: context.iconSmall,
+                                  height: context.iconSmall,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.edit_calendar,
+                                  size: context.iconSmall,
+                                  color: isDark
+                                      ? AppTheme.darkTextSecondary
+                                      : AppTheme.lightTextSecondary,
+                                ),
+                          onPressed:
+                              _taskSchedulerBusy ? null : _openTaskScheduler,
                           tooltip: '编辑任务计划',
                         ),
                       ],
