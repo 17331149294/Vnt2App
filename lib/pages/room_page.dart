@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:vnt2_app/chat/chat_manager.dart';
 import 'package:vnt2_app/chat/chat_models.dart';
@@ -6,6 +8,7 @@ import 'package:vnt2_app/chat/room_lobby_view.dart';
 import 'package:vnt2_app/network_config.dart';
 import 'package:vnt2_app/theme/app_theme.dart';
 import 'package:vnt2_app/utils/responsive_utils.dart';
+import 'package:vnt2_app/utils/toast_utils.dart';
 import 'package:vnt2_app/vnt/vnt_manager.dart';
 
 /// 房间页面 - 包含大厅、聊天室与私信三个标签。
@@ -26,17 +29,51 @@ class RoomPage extends StatefulWidget {
 class _RoomPageState extends State<RoomPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  int _lastAndroidWarningTabIndex = -1;
+
+  static const String _androidRoomUnavailableMessage =
+      'Android 聊天室暂不可用：VPN 按整个 App 路由，聊天需要进入虚拟网段，但 VNT 核心连接又需要绕过 VPN；待完成 Android socket protect 后启用。';
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_handleTabChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showAndroidRoomUnavailableToast(force: true);
+    });
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _handleTabChanged() {
+    _showAndroidRoomUnavailableToast();
+  }
+
+  void _showAndroidRoomUnavailableToast({bool force = false}) {
+    if (!Platform.isAndroid || !mounted) {
+      return;
+    }
+    final tabIndex = _tabController.index;
+    if (!force && _lastAndroidWarningTabIndex == tabIndex) {
+      return;
+    }
+    _lastAndroidWarningTabIndex = tabIndex;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      showTopToast(
+        context,
+        _androidRoomUnavailableMessage,
+        isSuccess: false,
+      );
+    });
   }
 
   @override
