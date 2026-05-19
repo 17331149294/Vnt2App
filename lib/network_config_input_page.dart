@@ -618,7 +618,7 @@ class _NetworkConfigInputPageState extends State<NetworkConfigInputPage> {
                       ),
                       const SizedBox(height: 16),
                       _buildRadioGroup(
-                        '内置IP代理',
+                        '内置NAT',
                         [('开启', 'OPEN'), ('关闭', 'CLOSE')],
                         _builtInIpProxy,
                         (value) {
