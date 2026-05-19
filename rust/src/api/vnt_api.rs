@@ -422,6 +422,10 @@ async fn start_network(
                 .set_tun_network_ip(network_addr.ip, network_addr.prefix_len)
                 .await
                 .context("设置虚拟网卡 IP 失败")?;
+            network_manager
+                .add_input_routes()
+                .await
+                .context("添加子网路由失败")?;
         }
     }
     Ok((network_manager, network_addr))

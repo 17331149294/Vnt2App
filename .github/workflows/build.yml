@@ -551,6 +551,9 @@ jobs:
 
           echo "发布文件列表:"
           find release-assets -maxdepth 1 -type f -print | sort
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          echo "build_time=$(TZ=UTC-8 date '+%Y年%m月%d日%H:%M:%S' | jq -sRr @uri)" >> $GITHUB_ENV
+          echo "build_tag=${{ startsWith(inputs.release_version, 'v') && inputs.release_version || format('v{0}', inputs.release_version) }}" >> $GITHUB_ENV
           if ! find release-assets -maxdepth 1 -type f | grep -q .; then
             echo "没有可发布的成功构建产物"
             exit 1
@@ -560,8 +563,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(inputs.release_version, 'v') && inputs.release_version || format('v{0}', inputs.release_version) }}
-          name: ${{ format('VNT2 App {0}', startsWith(inputs.release_version, 'v') && inputs.release_version || format('v{0}', inputs.release_version)) }}
-          body: ${{ format('自动发布 {0}（{1}），包含本次 workflow 中构建成功的平台产物。', startsWith(inputs.release_version, 'v') && inputs.release_version || format('v{0}', inputs.release_version), inputs.release_type) }}
+          body: |
+            > ### ![](https://img.shields.io/badge/%E7%BC%96%E8%AF%91%E6%97%B6%E9%97%B4-${{ env.build_time }}-8267?logo=github&labelColor=%E9%A1%BB)![](https://img.shields.io/github/downloads/${{ github.repository }}/${{ env.uild_tag }}/total?label=%E4%B8%8B%E8%BD%BD%E6%AC%A1%E6%95%B0&logo=github) 
+
           prerelease: ${{ inputs.release_type == 'pre' }}
           make_latest: ${{ inputs.release_type == 'rel' }}
           files: release-assets/*

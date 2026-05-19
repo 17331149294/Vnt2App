@@ -25,6 +25,9 @@ use anyhow::bail;
 use ipnet::Ipv4Net;
 use std::net::Ipv4Addr;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use route_manager::{Route, RouteManager};
+
 pub const DEFAULT_MTU: u16 = 1380;
 
 /// Context for deferred registration
@@ -47,6 +50,8 @@ pub struct NetworkManager {
     server_rpc: ServerRPC,
     tun_receiver: Option<TunReceiver>,
     registration_context: Option<Box<RegistrationContext>>,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    route_manager: Option<RouteManager>,
 }
 pub enum RegisterResponse {
     Success(NetworkAddr),
@@ -202,6 +207,8 @@ impl NetworkManager {
             server_rpc,
             tun_receiver,
             registration_context: Some(registration_context),
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            route_manager: None,
         })
     }
 
@@ -327,6 +334,27 @@ impl NetworkManager {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub async fn set_tun_network_ip(&self, ip: Ipv4Addr, prefix_len: u8) -> anyhow::Result<()> {
         self.device_io_manager.set_network(ip, prefix_len).await?;
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub async fn add_input_routes(&mut self) -> anyhow::Result<()> {
+        if self.config.input.is_empty() || self.config.no_tun {
+            return Ok(());
+        }
+        let if_index = self.device_io_manager.tun_if_index().await?;
+        let mut route_manager = RouteManager::new()?;
+        for input in &self.config.input {
+            let route = Route::new(input.net.network().into(), input.net.prefix_len())
+                .with_gateway(input.target_ip.into())
+                .with_if_index(if_index);
+            if let Err(e) = route_manager.add(&route) {
+                log::error!("add route [{}] error: {:?}", route, e);
+            } else {
+                log::info!("add route [{}] successful", route);
+            }
+        }
+        self.route_manager = Some(route_manager);
         Ok(())
     }
 
