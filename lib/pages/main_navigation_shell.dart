@@ -25,10 +25,12 @@ import 'package:vnt2_app/chat/chat_manager.dart';
 /// 主导航框架 - 响应式布局，支持侧边栏和底部导航
 class MainNavigationShell extends StatefulWidget {
   final VoidCallback? onThemeChanged;
+  final bool startupToTray;
 
   const MainNavigationShell({
     super.key,
     this.onThemeChanged,
+    this.startupToTray = false,
   });
 
   @override
@@ -125,21 +127,24 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 
     // 直接连接选中的配置
     if (mounted) {
-      _connectToConfigDirectly(config);
+      _connectToConfigDirectly(config, showProgress: !widget.startupToTray);
     }
   }
 
   /// 直接连接到指定配置（不跳转页面）
-  Future<void> _connectToConfigDirectly(NetworkConfig config) async {
+  Future<void> _connectToConfigDirectly(
+    NetworkConfig config, {
+    bool showProgress = true,
+  }) async {
     if (vntManager.hasConnectionItem(config.itemKey)) {
-      if (mounted) {
+      if (mounted && showProgress) {
         showTopToast(context, '[${config.configName}] 已连接', isSuccess: true);
       }
       return;
     }
 
     if (vntManager.isConnecting()) {
-      if (mounted) {
+      if (mounted && showProgress) {
         showTopToast(context, '正在连接中，请稍后再试', isSuccess: false);
       }
       return;
@@ -171,7 +176,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       }
     }
 
-    if (mounted) {
+    if (mounted && showProgress) {
       final isDark = Theme.of(context).brightness == Brightness.dark;
       final primaryColor = Theme.of(context).primaryColor;
       dialogOpen = true;
@@ -235,8 +240,10 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             setState(() {
               _selectedConfig = config;
             });
-            showTopToast(context, '[${config.configName}] 连接成功',
-                isSuccess: true);
+            if (showProgress) {
+              showTopToast(context, '[${config.configName}] 连接成功',
+                  isSuccess: true);
+            }
             unawaited(chatManager.syncConnections());
             // 连接成功，更新磁贴和小组件状态
             if (Platform.isAndroid) {
@@ -258,8 +265,10 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             closeDialog(); // 关闭连接中对话框
           }
           // 统一显示"服务已停止"提示
-          showTopToast(context, '[${config.configName}] 服务已停止',
-              isSuccess: false);
+          if (showProgress) {
+            showTopToast(context, '[${config.configName}] 服务已停止',
+                isSuccess: false);
+          }
           // 服务停止，更新磁贴和小组件状态
           if (Platform.isAndroid) {
             VntAppCall.updateWidgetAndTile(vntManager.hasConnection());
@@ -275,7 +284,9 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             onece = false;
             closeDialog(); // 关闭连接中对话框
           }
-          _handleConnectionError(msg, config.configName);
+          if (showProgress) {
+            _handleConnectionError(msg, config.configName);
+          }
           return;
         }
 
@@ -285,7 +296,9 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           closeDialog(); // 关闭连接中对话框
           vntManager.remove(config.itemKey);
         }
-        _handleConnectionError(msg, config.configName);
+        if (showProgress) {
+          _handleConnectionError(msg, config.configName);
+        }
         // 连接错误，更新磁贴和小组件状态
         if (Platform.isAndroid) {
           VntAppCall.updateWidgetAndTile(vntManager.hasConnection());
@@ -318,7 +331,9 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       if (!mounted) return;
 
       closeDialog(); // 关闭连接中对话框
-      showTopToast(context, '连接失败：$e', isSuccess: false);
+      if (showProgress) {
+        showTopToast(context, '连接失败：$e', isSuccess: false);
+      }
     }
   }
 
